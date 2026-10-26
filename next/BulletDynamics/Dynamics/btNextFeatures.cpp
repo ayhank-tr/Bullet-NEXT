@@ -224,6 +224,21 @@ bool btNextEnableActiveEdges(btCollisionObject* obj)
 	return true;
 }
 
+// --- CCD ------------------------------------------------------------------------------------
+void btNextConfigureCcd(btRigidBody* body, bool shapeCast)
+{
+	btTransform ident;
+	ident.setIdentity();
+	btVector3 mn, mx;
+	body->getCollisionShape()->getAabb(ident, mn, mx);
+	const btVector3 half = (mx - mn) * btScalar(0.5);
+	const btScalar minHalf = btMin(half.x(), btMin(half.y(), half.z()));
+	// Sweep when a step moves the body more than half its thinnest extent.
+	body->setCcdMotionThreshold(minHalf * btScalar(0.5));
+	body->setCcdSweptSphereRadius(minHalf * btScalar(0.9));
+	body->setCcdShapeCast(shapeCast && body->getCollisionShape()->isConvex());
+}
+
 void btNextConfigureWorld(btDiscreteDynamicsWorld* world)
 {
 	world->getDispatchInfo().m_deterministicOverlappingPairs = true;

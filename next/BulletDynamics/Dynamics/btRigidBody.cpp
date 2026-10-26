@@ -39,6 +39,7 @@ btRigidBody::btRigidBody(btScalar mass, btMotionState* motionState, btCollisionS
 
 void btRigidBody::setupRigidBody(const btRigidBody::btRigidBodyConstructionInfo& constructionInfo)
 {
+	m_ccdShapeCast = false;
 	m_internalType = CO_RIGID_BODY;
 
 	m_linearVelocity.setValue(btScalar(0.0), btScalar(0.0), btScalar(0.0));

@@ -31,6 +31,10 @@ bool btNextEnableActiveEdges(btCollisionObject* meshObject);
 /// C1.6 option: also force the face normal where all three edges of a triangle are flat.
 extern bool gBnFlatRegionRule;
 
+/// C1.7 / C1.8 - Continuous collision for a fast body: motion threshold and swept radius are
+/// derived from the shape's smallest half extent; with shapeCast the real convex shape is swept.
+void btNextConfigureCcd(btRigidBody* body, bool shapeCast);
+
 /// C1.3 - Deterministic pair and island ordering, plus SAT clipping for convex vs triangle.
 void btNextConfigureWorld(btDiscreteDynamicsWorld* world);
 

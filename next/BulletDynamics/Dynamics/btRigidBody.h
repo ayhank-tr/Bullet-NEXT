@@ -567,6 +567,9 @@ public:
 
 	//for experimental overriding of friction/contact solver func
 	int m_contactSolverType;
+
+	// Bullet NEXT (F1, C1.8): sweep the body's own convex shape for CCD instead of a sphere.
+	bool m_ccdShapeCast;
 	int m_frictionSolverType;
 
 	void setAngularFactor(const btVector3& angFac)
@@ -590,6 +593,10 @@ public:
 	{
 		return (getBroadphaseProxy() != 0);
 	}
+
+	// Bullet NEXT (F1, C1.8)
+	void setCcdShapeCast(bool enable) { m_ccdShapeCast = enable; }
+	bool getCcdShapeCast() const { return m_ccdShapeCast; }
 
 	// Bullet NEXT (F1, C1.1): Blender semantics - linked bodies ignore each other only while
 	// the constraint is enabled (active when gBnLinkedCollisionWhileEnabled is true).

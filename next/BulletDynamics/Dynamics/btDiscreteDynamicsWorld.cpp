@@ -937,7 +937,9 @@ void btDiscreteDynamicsWorld::createPredictiveContactsInternal(btRigidBody** bod
 					btTransform modifiedPredictedTrans = predictedTrans;
 					modifiedPredictedTrans.setBasis(body->getWorldTransform().getBasis());
 
-					convexSweepTest(&tmpSphere, body->getWorldTransform(), modifiedPredictedTrans, sweepResults);
+					// Bullet NEXT (F1, C1.8): optionally sweep the body's real convex shape.
+					const btConvexShape* castShape = body->getCcdShapeCast() ? static_cast<const btConvexShape*>(body->getCollisionShape()) : static_cast<const btConvexShape*>(&tmpSphere);
+					convexSweepTest(castShape, body->getWorldTransform(), modifiedPredictedTrans, sweepResults);
 					if (sweepResults.hasHit() && (sweepResults.m_closestHitFraction < 1.f))
 					{
 						btVector3 distVec = (predictedTrans.getOrigin() - body->getWorldTransform().getOrigin()) * sweepResults.m_closestHitFraction;
@@ -949,16 +951,26 @@ void btDiscreteDynamicsWorld::createPredictiveContactsInternal(btRigidBody** bod
 						btMutexUnlock(&m_predictiveManifoldsMutex);
 
 						btVector3 worldPointB = body->getWorldTransform().getOrigin() + distVec;
+						btVector3 localPointA(0, 0, 0);
+						btVector3 worldPointA = body->getWorldTransform().getOrigin();
+						if (body->getCcdShapeCast())
+						{
+							// Contact on the swept shape's surface: B at the hit point, A where that
+							// point of A is now (one sweep fraction back).
+							worldPointB = sweepResults.m_hitPointWorld;
+							worldPointA = worldPointB - distVec;
+							localPointA = body->getWorldTransform().invXform(worldPointA);
+						}
 						btVector3 localPointB = sweepResults.m_hitCollisionObject->getWorldTransform().inverse() * worldPointB;
 
-						btManifoldPoint newPoint(btVector3(0, 0, 0), localPointB, sweepResults.m_hitNormalWorld, distance);
+						btManifoldPoint newPoint(localPointA, localPointB, sweepResults.m_hitNormalWorld, distance);
 
 						bool isPredictive = true;
 						int index = manifold->addManifoldPoint(newPoint, isPredictive);
 						btManifoldPoint& pt = manifold->getContactPoint(index);
 						pt.m_combinedRestitution = 0;
 						pt.m_combinedFriction = gCalculateCombinedFrictionCallback(body, sweepResults.m_hitCollisionObject);
-						pt.m_positionWorldOnA = body->getWorldTransform().getOrigin();
+						pt.m_positionWorldOnA = worldPointA;
 						pt.m_positionWorldOnB = worldPointB;
 					}
 				}
@@ -1039,7 +1051,9 @@ void btDiscreteDynamicsWorld::integrateTransformsInternal(btRigidBody** bodies, 
 					btTransform modifiedPredictedTrans = predictedTrans;
 					modifiedPredictedTrans.setBasis(body->getWorldTransform().getBasis());
 
-					convexSweepTest(&tmpSphere, body->getWorldTransform(), modifiedPredictedTrans, sweepResults);
+					// Bullet NEXT (F1, C1.8): optionally sweep the body's real convex shape.
+					const btConvexShape* castShape = body->getCcdShapeCast() ? static_cast<const btConvexShape*>(body->getCollisionShape()) : static_cast<const btConvexShape*>(&tmpSphere);
+					convexSweepTest(castShape, body->getWorldTransform(), modifiedPredictedTrans, sweepResults);
 					if (sweepResults.hasHit() && (sweepResults.m_closestHitFraction < 1.f))
 					{
 						//printf("clamped integration to hit fraction = %f\n",fraction);
