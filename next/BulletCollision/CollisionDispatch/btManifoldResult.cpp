@@ -96,7 +96,8 @@ btManifoldResult::btManifoldResult(const btCollisionObjectWrapper* body0Wrap, co
 	  m_index0(-1),
 	  m_index1(-1)
 	  ,
-	  m_closestPointDistanceThreshold(0)
+	  m_closestPointDistanceThreshold(0),
+	  m_bnPointBuffer(0)
 {
 }
 
@@ -169,6 +170,21 @@ void btManifoldResult::addContactPoint(const btVector3& normalOnBInWorld, const 
 		newPt.m_partId1 = m_partId1;
 		newPt.m_index0 = m_index0;
 		newPt.m_index1 = m_index1;
+	}
+	if (m_bnPointBuffer)
+	{
+		// Bullet NEXT: collect for reduction; the custom-material callback still sees every point
+		// with its own triangle wrapper.
+		if (gContactAddedCallback &&
+			((m_body0Wrap->getCollisionObject()->getCollisionFlags() & btCollisionObject::CF_CUSTOM_MATERIAL_CALLBACK) ||
+			 (m_body1Wrap->getCollisionObject()->getCollisionFlags() & btCollisionObject::CF_CUSTOM_MATERIAL_CALLBACK)))
+		{
+			const btCollisionObjectWrapper* obj0Wrap = isSwapped ? m_body1Wrap : m_body0Wrap;
+			const btCollisionObjectWrapper* obj1Wrap = isSwapped ? m_body0Wrap : m_body1Wrap;
+			(*gContactAddedCallback)(newPt, obj0Wrap, newPt.m_partId0, newPt.m_index0, obj1Wrap, newPt.m_partId1, newPt.m_index1);
+		}
+		m_bnPointBuffer->push_back(newPt);
+		return;
 	}
 	//printf("depth=%f\n",depth);
 	///@todo, check this for any side effects

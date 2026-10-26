@@ -22,6 +22,9 @@ subject to the following restrictions:
 #include "BulletCollision/CollisionShapes/btTriangleCallback.h"
 #include "BulletCollision/NarrowPhaseCollision/btPersistentManifold.h"
 class btDispatcher;
+
+/// Bullet NEXT (F1, C1.6b): reduce mesh-pair contacts to four after gathering all triangles.
+extern bool gBnMeshContactReduction;
 #include "BulletCollision/BroadphaseCollision/btBroadphaseProxy.h"
 #include "btCollisionCreateFunc.h"
 

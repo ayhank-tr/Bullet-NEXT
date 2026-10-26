@@ -20,6 +20,7 @@ class btCollisionObject;
 struct btCollisionObjectWrapper;
 
 #include "BulletCollision/NarrowPhaseCollision/btPersistentManifold.h"
+#include "LinearMath/btAlignedObjectArray.h"
 class btManifoldPoint;
 
 #include "BulletCollision/NarrowPhaseCollision/btDiscreteCollisionDetectorInterface.h"
@@ -66,7 +67,8 @@ public:
 		  m_index0(-1),
 		  m_index1(-1)
 #endif  //DEBUG_PART_INDEX
-			  m_closestPointDistanceThreshold(0)
+			  m_closestPointDistanceThreshold(0),
+			  m_bnPointBuffer(0)
 	{
 	}
 
@@ -150,6 +152,10 @@ public:
 	}
 
 	btScalar m_closestPointDistanceThreshold;
+
+	/// Bullet NEXT (F1, C1.6b): when set, contact points are collected here instead of being
+	/// inserted into the manifold, so all triangles of a mesh pair can be reduced together.
+	btAlignedObjectArray<btManifoldPoint>* m_bnPointBuffer;
 
 	/// in the future we can let the user override the methods to combine restitution and friction
 	static btScalar calculateCombinedRestitution(const btCollisionObject* body0, const btCollisionObject* body1);

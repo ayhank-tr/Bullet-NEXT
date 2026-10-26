@@ -28,6 +28,86 @@ subject to the following restrictions:
 #include "BulletCollision/CollisionDispatch/btCollisionObjectWrapper.h"
 #include "BulletCollision/CollisionShapes/btSdfCollisionShape.h"
 
+
+// Bullet NEXT (F1, C1.6b): one-shot contact reduction for mesh pairs. Points from all triangles
+// are gathered first, then at most four are kept: the deepest, the farthest from it, the one
+// giving the largest triangle, and the one adding the most area. Inserting them one by one (the
+// upstream path) lets later triangles push out good points and leaves a sliding box with too
+// little support, so it sinks for a frame.
+bool gBnMeshContactReduction = false;
+
+static btScalar bnTriArea2(const btVector3& a, const btVector3& b, const btVector3& c)
+{
+	return (b - a).cross(c - a).length2();
+}
+
+static void bnInsertReduced(btAlignedObjectArray<btManifoldPoint>& pts, btPersistentManifold* manifold)
+{
+	const int n = pts.size();
+	if (n == 0)
+		return;
+	int chosen[4] = {-1, -1, -1, -1};
+	int count = 0;
+	if (n <= 4)
+	{
+		for (int i = 0; i < n; ++i)
+			chosen[count++] = i;
+	}
+	else
+	{
+		int a = 0;
+		for (int i = 1; i < n; ++i)
+			if (pts[i].m_distance1 < pts[a].m_distance1)
+				a = i;
+		chosen[count++] = a;
+		const btVector3 pa = pts[a].m_positionWorldOnB;
+		int b = -1;
+		btScalar best = btScalar(1e-6);
+		for (int i = 0; i < n; ++i)
+		{
+			const btScalar d = (pts[i].m_positionWorldOnB - pa).length2();
+			if (d > best) { best = d; b = i; }
+		}
+		if (b >= 0)
+		{
+			chosen[count++] = b;
+			const btVector3 pb = pts[b].m_positionWorldOnB;
+			int c = -1;
+			best = btScalar(1e-10);
+			for (int i = 0; i < n; ++i)
+			{
+				const btScalar ar = bnTriArea2(pa, pb, pts[i].m_positionWorldOnB);
+				if (ar > best) { best = ar; c = i; }
+			}
+			if (c >= 0)
+			{
+				chosen[count++] = c;
+				const btVector3 pc = pts[c].m_positionWorldOnB;
+				const btScalar base = btSqrt(bnTriArea2(pa, pb, pc));
+				int d = -1;
+				best = base * btScalar(1.0001);
+				for (int i = 0; i < n; ++i)
+				{
+					const btVector3& p = pts[i].m_positionWorldOnB;
+					const btScalar s = btSqrt(bnTriArea2(pa, pb, p)) + btSqrt(bnTriArea2(pb, pc, p)) + btSqrt(bnTriArea2(pc, pa, p));
+					if (s > best) { best = s; d = i; }
+				}
+				if (d >= 0)
+					chosen[count++] = d;
+			}
+		}
+	}
+	for (int k = 0; k < count; ++k)
+	{
+		btManifoldPoint& pt = pts[chosen[k]];
+		const int idx = manifold->getCacheEntry(pt);
+		if (idx >= 0)
+			manifold->replaceContactPoint(pt, idx);
+		else
+			manifold->addManifoldPoint(pt);
+	}
+}
+
 btConvexConcaveCollisionAlgorithm::btConvexConcaveCollisionAlgorithm(const btCollisionAlgorithmConstructionInfo& ci, const btCollisionObjectWrapper* body0Wrap, const btCollisionObjectWrapper* body1Wrap, bool isSwapped)
 	: btActivatingCollisionAlgorithm(ci, body0Wrap, body1Wrap),
 	  m_btConvexTriangleCallback(ci.m_dispatcher1, body0Wrap, body1Wrap, isSwapped),
@@ -205,7 +285,9 @@ void btConvexTriangleCallback::setTimeStepAndCounters(btScalar collisionMarginTr
 	const btCollisionShape* convexShape = static_cast<const btCollisionShape*>(m_convexBodyWrap->getCollisionShape());
 	//CollisionShape* triangleShape = static_cast<btCollisionShape*>(triBody->m_collisionShape);
 	convexShape->getAabb(convexInTriangleSpace, m_aabbMin, m_aabbMax);
-	btScalar extraMargin = collisionMarginTriangle + resultOut->m_closestPointDistanceThreshold;
+	// Bullet NEXT (F1): never query with a zero margin. A mesh with margin 0 under a body resting
+	// exactly on it lost its triangles to rounding and the body dropped for a frame.
+	btScalar extraMargin = btMax(collisionMarginTriangle, m_manifoldPtr ? m_manifoldPtr->getContactBreakingThreshold() : btScalar(0)) + resultOut->m_closestPointDistanceThreshold;
 
 	btVector3 extra(extraMargin, extraMargin, extraMargin);
 
@@ -301,7 +383,17 @@ void btConvexConcaveCollisionAlgorithm::processCollision(const btCollisionObject
 
 				m_btConvexTriangleCallback.m_manifoldPtr->setBodies(convexBodyWrap->getCollisionObject(), triBodyWrap->getCollisionObject());
 
+				btAlignedObjectArray<btManifoldPoint> bnPoints;
+				if (gBnMeshContactReduction)
+					resultOut->m_bnPointBuffer = &bnPoints;
+
 				concaveShape->processAllTriangles(&m_btConvexTriangleCallback, m_btConvexTriangleCallback.getAabbMin(), m_btConvexTriangleCallback.getAabbMax());
+
+				if (gBnMeshContactReduction)
+				{
+					resultOut->m_bnPointBuffer = 0;
+					bnInsertReduced(bnPoints, m_btConvexTriangleCallback.m_manifoldPtr);
+				}
 
 				resultOut->refreshContactPoints();
 
