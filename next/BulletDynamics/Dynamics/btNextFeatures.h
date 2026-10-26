@@ -23,6 +23,14 @@ void btNextSetLinkedCollisionWhileEnabled(bool enable);
 /// compound shapes. Returns the number of shapes prepared.
 int btNextEnableHullClipping(btCollisionShape* shape);
 
+/// C1.6 - Bake internal-edge data for a static triangle mesh or heightfield object (also meshes
+/// inside a compound) and correct contact normals on internal edges automatically. Returns false
+/// when the object has no mesh or heightfield.
+bool btNextEnableActiveEdges(btCollisionObject* meshObject);
+
+/// C1.6 option: also force the face normal where all three edges of a triangle are flat.
+extern bool gBnFlatRegionRule;
+
 /// C1.3 - Deterministic pair and island ordering, plus SAT clipping for convex vs triangle.
 void btNextConfigureWorld(btDiscreteDynamicsWorld* world);
 

@@ -492,9 +492,13 @@ void btAdjustInternalEdgeContacts(btManifoldPoint& cp, const btCollisionObjectWr
 	
 	btTriangleInfoMap* triangleInfoMapPtr = 0;
 
-	if (colObj0Wrap->getCollisionObject()->getCollisionShape()->getShapeType() == TERRAIN_SHAPE_PROXYTYPE)
+	// Bullet NEXT (F1): the mesh is the triangle's parent shape, so meshes that are children of a
+	// compound get their internal-edge data too (upstream only looked at the object's own shape).
+	const btCollisionShape* meshShape = colObj0Wrap->m_parent ? colObj0Wrap->m_parent->getCollisionShape() : colObj0Wrap->getCollisionObject()->getCollisionShape();
+
+	if (meshShape->getShapeType() == TERRAIN_SHAPE_PROXYTYPE)
 	{
-		btHeightfieldTerrainShape* heightfield = (btHeightfieldTerrainShape*)colObj0Wrap->getCollisionObject()->getCollisionShape();
+		btHeightfieldTerrainShape* heightfield = (btHeightfieldTerrainShape*)meshShape;
 		triangleInfoMapPtr = heightfield->getTriangleInfoMap();
 
 //#define USE_HEIGHTFIELD_TRIANGLES
@@ -517,15 +521,15 @@ void btAdjustInternalEdgeContacts(btManifoldPoint& cp, const btCollisionObjectWr
 
 	btBvhTriangleMeshShape* trimesh = 0;
 
-	if (colObj0Wrap->getCollisionObject()->getCollisionShape()->getShapeType() == SCALED_TRIANGLE_MESH_SHAPE_PROXYTYPE)
+	if (meshShape->getShapeType() == SCALED_TRIANGLE_MESH_SHAPE_PROXYTYPE)
 	{
-		trimesh = ((btScaledBvhTriangleMeshShape*)colObj0Wrap->getCollisionObject()->getCollisionShape())->getChildShape();
+		trimesh = ((btScaledBvhTriangleMeshShape*)meshShape)->getChildShape();
 	}
 	else
 	{
-		if (colObj0Wrap->getCollisionObject()->getCollisionShape()->getShapeType() == TRIANGLE_MESH_SHAPE_PROXYTYPE)
+		if (meshShape->getShapeType() == TRIANGLE_MESH_SHAPE_PROXYTYPE)
 		{
-			trimesh = (btBvhTriangleMeshShape*)colObj0Wrap->getCollisionObject()->getCollisionShape();
+			trimesh = (btBvhTriangleMeshShape*)meshShape;
 		}
 	}
 	if (trimesh)
