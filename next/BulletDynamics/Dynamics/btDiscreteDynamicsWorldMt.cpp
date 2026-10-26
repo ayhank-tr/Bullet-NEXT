@@ -222,10 +222,35 @@ void btDiscreteDynamicsWorldMt::predictUnconstraintMotion(btScalar timeStep)
 	}
 }
 
+struct BnUpdaterPredictiveSweep : public btIParallelForBody
+{
+	btScalar timeStep;
+	btRigidBody** rigidBodies;
+	btDiscreteDynamicsWorld::BnPredictiveHit* hits;
+	btDiscreteDynamicsWorld* world;
+	void forLoop(int iBegin, int iEnd) const BT_OVERRIDE
+	{
+		world->bnSweepPredictive(&rigidBodies[iBegin], iEnd - iBegin, timeStep, &hits[iBegin]);
+	}
+};
+
 void btDiscreteDynamicsWorldMt::createPredictiveContacts(btScalar timeStep)
 {
 	BT_PROFILE("createPredictiveContacts");
 	releasePredictiveContacts();
+	if (m_nonStaticRigidBodies.size() > 0 && getDispatchInfo().m_deterministicOverlappingPairs)
+	{
+		// Bullet NEXT (F1, C1.9): parallel sweeps, then manifolds created in body order.
+		m_bnPredictiveHits.resize(m_nonStaticRigidBodies.size());
+		BnUpdaterPredictiveSweep sweep;
+		sweep.world = this;
+		sweep.timeStep = timeStep;
+		sweep.rigidBodies = &m_nonStaticRigidBodies[0];
+		sweep.hits = &m_bnPredictiveHits[0];
+		btParallelFor(0, m_nonStaticRigidBodies.size(), 50, sweep);
+		bnCreatePredictive(&m_nonStaticRigidBodies[0], m_nonStaticRigidBodies.size(), &m_bnPredictiveHits[0]);
+		return;
+	}
 	if (m_nonStaticRigidBodies.size() > 0)
 	{
 		UpdaterCreatePredictiveContacts update;
@@ -237,9 +262,51 @@ void btDiscreteDynamicsWorldMt::createPredictiveContacts(btScalar timeStep)
 	}
 }
 
+struct BnUpdaterSweep : public btIParallelForBody
+{
+	btScalar timeStep;
+	btRigidBody** rigidBodies;
+	btDiscreteDynamicsWorld::BnCcdResult* fractions;
+	btDiscreteDynamicsWorld* world;
+	void forLoop(int iBegin, int iEnd) const BT_OVERRIDE
+	{
+		world->bnSweepTransforms(&rigidBodies[iBegin], iEnd - iBegin, timeStep, &fractions[iBegin]);
+	}
+};
+
+struct BnUpdaterApply : public btIParallelForBody
+{
+	btScalar timeStep;
+	btRigidBody** rigidBodies;
+	btDiscreteDynamicsWorld::BnCcdResult* fractions;
+	btDiscreteDynamicsWorld* world;
+	void forLoop(int iBegin, int iEnd) const BT_OVERRIDE
+	{
+		world->bnApplyTransforms(&rigidBodies[iBegin], iEnd - iBegin, timeStep, &fractions[iBegin]);
+	}
+};
+
 void btDiscreteDynamicsWorldMt::integrateTransforms(btScalar timeStep)
 {
 	BT_PROFILE("integrateTransforms");
+	if (m_nonStaticRigidBodies.size() > 0 && getDispatchInfo().m_deterministicOverlappingPairs)
+	{
+		// Bullet NEXT (F1, C1.9): all sweeps first, then all moves.
+		m_bnHitFractions.resize(m_nonStaticRigidBodies.size());
+		BnUpdaterSweep sweep;
+		sweep.world = this;
+		sweep.timeStep = timeStep;
+		sweep.rigidBodies = &m_nonStaticRigidBodies[0];
+		sweep.fractions = &m_bnHitFractions[0];
+		btParallelFor(0, m_nonStaticRigidBodies.size(), 50, sweep);
+		BnUpdaterApply apply;
+		apply.world = this;
+		apply.timeStep = timeStep;
+		apply.rigidBodies = &m_nonStaticRigidBodies[0];
+		apply.fractions = &m_bnHitFractions[0];
+		btParallelFor(0, m_nonStaticRigidBodies.size(), 50, apply);
+		return;
+	}
 	if (m_nonStaticRigidBodies.size() > 0)
 	{
 		UpdaterIntegrateTransforms update;

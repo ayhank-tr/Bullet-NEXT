@@ -64,7 +64,7 @@ if(TARGET bn_bullet_legacy AND TARGET bn_bullet_next)
   target_compile_definitions(bn_symcheck_legacy PRIVATE BN_SYM_FN=bn_symcheck_legacy_world)
   add_library(bn_symcheck_next OBJECT ${CMAKE_CURRENT_SOURCE_DIR}/symcheck/symcheck_world.cpp)
   target_include_directories(bn_symcheck_next PRIVATE ${PROJECT_SOURCE_DIR}/next)
-  target_compile_definitions(bn_symcheck_next PRIVATE BN_SYM_FN=bn_symcheck_next_world)
+  target_compile_definitions(bn_symcheck_next PRIVATE BN_SYM_FN=bn_symcheck_next_world BT_THREADSAFE=1)
   add_executable(bn_symcheck ${CMAKE_CURRENT_SOURCE_DIR}/symcheck/symcheck_main.cpp
     $<TARGET_OBJECTS:bn_symcheck_legacy> $<TARGET_OBJECTS:bn_symcheck_next>)
   target_link_libraries(bn_symcheck PRIVATE bn_bullet_legacy bn_bullet_next)

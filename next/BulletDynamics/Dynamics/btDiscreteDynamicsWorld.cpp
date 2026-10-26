@@ -979,6 +979,75 @@ void btDiscreteDynamicsWorld::createPredictiveContactsInternal(btRigidBody** bod
 	}
 }
 
+// Bullet NEXT (F1, C1.9): predictive contacts in two passes. bnSweepPredictive only reads the
+// world and records each body's first hit; bnCreatePredictive then creates the manifolds in body
+// order on one thread. Results no longer depend on thread timing or count.
+void btDiscreteDynamicsWorld::bnSweepPredictive(btRigidBody** bodies, int numBodies, btScalar timeStep, BnPredictiveHit* hits)
+{
+	btTransform predictedTrans;
+	for (int i = 0; i < numBodies; i++)
+	{
+		btRigidBody* body = bodies[i];
+		BnPredictiveHit& h = hits[i];
+		h.hitObject = 0;
+		body->setHitFraction(1.f);
+		if (!(body->isActive() && (!body->isStaticOrKinematicObject())))
+			continue;
+		body->predictIntegratedTransform(timeStep, predictedTrans);
+		btScalar squareMotion = (predictedTrans.getOrigin() - body->getWorldTransform().getOrigin()).length2();
+		if (!(getDispatchInfo().m_useContinuous && body->getCcdSquareMotionThreshold() && body->getCcdSquareMotionThreshold() < squareMotion && body->getCollisionShape()->isConvex()))
+			continue;
+		btClosestNotMeConvexResultCallback sweepResults(body, body->getWorldTransform().getOrigin(), predictedTrans.getOrigin(), getBroadphase()->getOverlappingPairCache(), getDispatcher());
+		btSphereShape tmpSphere(body->getCcdSweptSphereRadius());
+		sweepResults.m_allowedPenetration = getDispatchInfo().m_allowedCcdPenetration;
+		sweepResults.m_collisionFilterGroup = body->getBroadphaseProxy()->m_collisionFilterGroup;
+		sweepResults.m_collisionFilterMask = body->getBroadphaseProxy()->m_collisionFilterMask;
+		btTransform modifiedPredictedTrans = predictedTrans;
+		modifiedPredictedTrans.setBasis(body->getWorldTransform().getBasis());
+		const btConvexShape* castShape = body->getCcdShapeCast() ? static_cast<const btConvexShape*>(body->getCollisionShape()) : static_cast<const btConvexShape*>(&tmpSphere);
+		convexSweepTest(castShape, body->getWorldTransform(), modifiedPredictedTrans, sweepResults);
+		if (sweepResults.hasHit() && (sweepResults.m_closestHitFraction < 1.f))
+		{
+			h.hitObject = sweepResults.m_hitCollisionObject;
+			h.distVec = (predictedTrans.getOrigin() - body->getWorldTransform().getOrigin()) * sweepResults.m_closestHitFraction;
+			h.normal = sweepResults.m_hitNormalWorld;
+			h.hitPoint = sweepResults.m_hitPointWorld;
+		}
+	}
+}
+
+void btDiscreteDynamicsWorld::bnCreatePredictive(btRigidBody** bodies, int numBodies, const BnPredictiveHit* hits)
+{
+	for (int i = 0; i < numBodies; i++)
+	{
+		const BnPredictiveHit& h = hits[i];
+		if (!h.hitObject)
+			continue;
+		btRigidBody* body = bodies[i];
+		gNumClampedCcdMotions++;
+		btScalar distance = h.distVec.dot(-h.normal);
+		btPersistentManifold* manifold = m_dispatcher1->getNewManifold(body, h.hitObject);
+		m_predictiveManifolds.push_back(manifold);
+		btVector3 worldPointB = body->getWorldTransform().getOrigin() + h.distVec;
+		btVector3 localPointA(0, 0, 0);
+		btVector3 worldPointA = body->getWorldTransform().getOrigin();
+		if (body->getCcdShapeCast())
+		{
+			worldPointB = h.hitPoint;
+			worldPointA = worldPointB - h.distVec;
+			localPointA = body->getWorldTransform().invXform(worldPointA);
+		}
+		btVector3 localPointB = h.hitObject->getWorldTransform().inverse() * worldPointB;
+		btManifoldPoint newPoint(localPointA, localPointB, h.normal, distance);
+		int index = manifold->addManifoldPoint(newPoint, true);
+		btManifoldPoint& pt = manifold->getContactPoint(index);
+		pt.m_combinedRestitution = 0;
+		pt.m_combinedFriction = gCalculateCombinedFrictionCallback(body, h.hitObject);
+		pt.m_positionWorldOnA = worldPointA;
+		pt.m_positionWorldOnB = worldPointB;
+	}
+}
+
 void btDiscreteDynamicsWorld::releasePredictiveContacts()
 {
 	BT_PROFILE("release predictive contact manifolds");
@@ -995,6 +1064,13 @@ void btDiscreteDynamicsWorld::createPredictiveContacts(btScalar timeStep)
 {
 	BT_PROFILE("createPredictiveContacts");
 	releasePredictiveContacts();
+	if (m_nonStaticRigidBodies.size() > 0 && getDispatchInfo().m_deterministicOverlappingPairs)
+	{
+		m_bnPredictiveHits.resize(m_nonStaticRigidBodies.size());
+		bnSweepPredictive(&m_nonStaticRigidBodies[0], m_nonStaticRigidBodies.size(), timeStep, &m_bnPredictiveHits[0]);
+		bnCreatePredictive(&m_nonStaticRigidBodies[0], m_nonStaticRigidBodies.size(), &m_bnPredictiveHits[0]);
+		return;
+	}
 	if (m_nonStaticRigidBodies.size() > 0)
 	{
 		createPredictiveContactsInternal(&m_nonStaticRigidBodies[0], m_nonStaticRigidBodies.size(), timeStep);
@@ -1099,12 +1175,103 @@ void btDiscreteDynamicsWorld::integrateTransformsInternal(btRigidBody** bodies, 
 	}
 }
 
+// Bullet NEXT (F1, C1.9): integration split in two passes. The sweep pass only reads world
+// state and records how far each body may move; the apply pass moves them. With one pass, a
+// thread sweeping body A could see body B already moved by another thread, so results depended
+// on thread timing.
+void btDiscreteDynamicsWorld::bnSweepTransforms(btRigidBody** bodies, int numBodies, btScalar timeStep, BnCcdResult* results)
+{
+	btTransform predictedTrans;
+	for (int i = 0; i < numBodies; i++)
+	{
+		btRigidBody* body = bodies[i];
+		BnCcdResult& r = results[i];
+		r.fraction = btScalar(-1);
+		r.deltaV.setZero();
+		if (!(body->isActive() && (!body->isStaticOrKinematicObject())))
+			continue;
+		r.fraction = btScalar(1);
+		body->predictIntegratedTransform(timeStep, predictedTrans);
+		btScalar squareMotion = (predictedTrans.getOrigin() - body->getWorldTransform().getOrigin()).length2();
+		if (getDispatchInfo().m_useContinuous && body->getCcdSquareMotionThreshold() && body->getCcdSquareMotionThreshold() < squareMotion && body->getCollisionShape()->isConvex())
+		{
+			btClosestNotMeConvexResultCallback sweepResults(body, body->getWorldTransform().getOrigin(), predictedTrans.getOrigin(), getBroadphase()->getOverlappingPairCache(), getDispatcher());
+			btSphereShape tmpSphere(body->getCcdSweptSphereRadius());
+			sweepResults.m_allowedPenetration = getDispatchInfo().m_allowedCcdPenetration;
+			sweepResults.m_collisionFilterGroup = body->getBroadphaseProxy()->m_collisionFilterGroup;
+			sweepResults.m_collisionFilterMask = body->getBroadphaseProxy()->m_collisionFilterMask;
+			btTransform modifiedPredictedTrans = predictedTrans;
+			modifiedPredictedTrans.setBasis(body->getWorldTransform().getBasis());
+			const btConvexShape* castShape = body->getCcdShapeCast() ? static_cast<const btConvexShape*>(body->getCollisionShape()) : static_cast<const btConvexShape*>(&tmpSphere);
+			convexSweepTest(castShape, body->getWorldTransform(), modifiedPredictedTrans, sweepResults);
+			if (sweepResults.hasHit() && (sweepResults.m_closestHitFraction < 1.f))
+			{
+				r.fraction = sweepResults.m_closestHitFraction;
+				{
+					// Bullet NEXT (F1, C1.8), Jolt-style: a body stopped at the time of impact must also
+					// stop approaching, or it arrives next step with full speed and sinks in. The body's
+					// share of an inelastic impulse is removed (all of it against static or kinematic).
+					const btVector3& n = sweepResults.m_hitNormalWorld;
+					const btRigidBody* other = btRigidBody::upcast(sweepResults.m_hitCollisionObject);
+					btVector3 vOther(0, 0, 0);
+					btScalar share = 1;
+					if (other && !other->isStaticOrKinematicObject())
+					{
+						vOther = other->getLinearVelocity();
+						share = other->getInvMass() > 0 ? body->getInvMass() / (body->getInvMass() + other->getInvMass()) : 1;
+					}
+					else if (other)
+						vOther = other->getLinearVelocity();
+					const btScalar approach = (body->getLinearVelocity() - vOther).dot(n);
+					if (approach < 0)
+						r.deltaV = -n * (approach * share);
+				}
+			}
+		}
+	}
+}
+
+void btDiscreteDynamicsWorld::bnApplyTransforms(btRigidBody** bodies, int numBodies, btScalar timeStep, const BnCcdResult* results)
+{
+	btTransform predictedTrans;
+	for (int i = 0; i < numBodies; i++)
+	{
+		btRigidBody* body = bodies[i];
+		body->setHitFraction(1.f);
+		const btScalar fraction = results[i].fraction;
+		if (fraction < btScalar(0))
+			continue;
+		if (fraction < btScalar(1))
+		{
+			body->setHitFraction(fraction);
+			body->predictIntegratedTransform(timeStep * body->getHitFraction(), predictedTrans);
+			body->setHitFraction(0.f);
+			if (!results[i].deltaV.isZero())
+				body->setLinearVelocity(body->getLinearVelocity() + results[i].deltaV);
+		}
+		else
+		{
+			body->predictIntegratedTransform(timeStep, predictedTrans);
+		}
+		body->proceedToTransform(predictedTrans);
+	}
+}
+
 void btDiscreteDynamicsWorld::integrateTransforms(btScalar timeStep)
 {
 	BT_PROFILE("integrateTransforms");
 	if (m_nonStaticRigidBodies.size() > 0)
 	{
-		integrateTransformsInternal(&m_nonStaticRigidBodies[0], m_nonStaticRigidBodies.size(), timeStep);
+		if (getDispatchInfo().m_deterministicOverlappingPairs)
+		{
+			m_bnHitFractions.resize(m_nonStaticRigidBodies.size());
+			bnSweepTransforms(&m_nonStaticRigidBodies[0], m_nonStaticRigidBodies.size(), timeStep, &m_bnHitFractions[0]);
+			bnApplyTransforms(&m_nonStaticRigidBodies[0], m_nonStaticRigidBodies.size(), timeStep, &m_bnHitFractions[0]);
+		}
+		else
+		{
+			integrateTransformsInternal(&m_nonStaticRigidBodies[0], m_nonStaticRigidBodies.size(), timeStep);
+		}
 	}
 
 	///this should probably be switched on by default, but it is not well tested yet

@@ -90,6 +90,26 @@ public:
 	/// Bullet NEXT (F1): sort contact manifolds into a canonical order (body index pairs).
 	void bnSortManifolds();
 
+	/// Bullet NEXT (F1, C1.9): two-pass integration (see .cpp). fraction: -1 skip, <1 clamped;
+	/// deltaV: velocity change that ends the approach at the time of impact.
+	struct BnCcdResult
+	{
+		btVector3 deltaV;
+		btScalar fraction;
+	};
+	void bnSweepTransforms(btRigidBody** bodies, int numBodies, btScalar timeStep, BnCcdResult* results);
+	void bnApplyTransforms(btRigidBody** bodies, int numBodies, btScalar timeStep, const BnCcdResult* results);
+	btAlignedObjectArray<BnCcdResult> m_bnHitFractions;
+
+	/// Bullet NEXT (F1, C1.9): two-pass predictive contacts (see .cpp).
+	struct BnPredictiveHit
+	{
+		const btCollisionObject* hitObject;
+		btVector3 distVec, normal, hitPoint;
+	};
+	void bnSweepPredictive(btRigidBody** bodies, int numBodies, btScalar timeStep, BnPredictiveHit* hits);
+	void bnCreatePredictive(btRigidBody** bodies, int numBodies, const BnPredictiveHit* hits);
+	btAlignedObjectArray<BnPredictiveHit> m_bnPredictiveHits;
 
 protected:
 
