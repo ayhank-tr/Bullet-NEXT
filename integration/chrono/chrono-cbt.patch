@@ -1,0 +1,601 @@
+diff --git a/src/chrono/CMakeLists.txt b/src/chrono/CMakeLists.txt
+index 491e469..1aecf19 100644
+--- a/src/chrono/CMakeLists.txt
++++ b/src/chrono/CMakeLists.txt
+@@ -889,6 +889,7 @@ set(Chrono_collision_bullet_SOURCES
+     collision/bullet/ChCollisionModelBullet.cpp
+     collision/bullet/ChCollisionAlgorithmsBullet.cpp
+     collision/bullet/ChCollisionUtilsBullet.cpp
++    collision/bullet/cbtNextCollision.cpp
+     collision/bullet/BulletCollision/BroadphaseCollision/cbtAxisSweep3.cpp
+     collision/bullet/BulletCollision/BroadphaseCollision/cbtSimpleBroadphase.cpp
+     collision/bullet/BulletCollision/BroadphaseCollision/cbtOverlappingPairCache.cpp
+@@ -1000,6 +1001,7 @@ set(Chrono_collision_bullet_HEADERS
+     collision/bullet/ChCollisionModelBullet.h
+     collision/bullet/ChCollisionAlgorithmsBullet.h
+     collision/bullet/ChCollisionUtilsBullet.h
++    collision/bullet/cbtNextCollision.h
+     )
+ source_group("collision\\bullet" FILES ${Chrono_collision_bullet_SOURCES} ${Chrono_collision_bullet_HEADERS})
+ 
+diff --git a/src/chrono/collision/bullet/BulletCollision/CollisionDispatch/cbtConvexConcaveCollisionAlgorithm.cpp b/src/chrono/collision/bullet/BulletCollision/CollisionDispatch/cbtConvexConcaveCollisionAlgorithm.cpp
+index 067ef86..8770329 100644
+--- a/src/chrono/collision/bullet/BulletCollision/CollisionDispatch/cbtConvexConcaveCollisionAlgorithm.cpp
++++ b/src/chrono/collision/bullet/BulletCollision/CollisionDispatch/cbtConvexConcaveCollisionAlgorithm.cpp
+@@ -28,6 +28,86 @@ subject to the following restrictions:
+ #include "BulletCollision/CollisionDispatch/cbtCollisionObjectWrapper.h"
+ #include "BulletCollision/CollisionShapes/cbtSdfCollisionShape.h"
+ 
++
++// Bullet NEXT (F1, C1.6b): one-shot contact reduction for mesh pairs. Points from all triangles
++// are gathered first, then at most four are kept: the deepest, the farthest from it, the one
++// giving the largest triangle, and the one adding the most area. Inserting them one by one (the
++// upstream path) lets later triangles push out good points and leaves a sliding box with too
++// little support, so it sinks for a frame.
++bool gBnMeshContactReduction = false;
++
++static cbtScalar bnTriArea2(const cbtVector3& a, const cbtVector3& b, const cbtVector3& c)
++{
++	return (b - a).cross(c - a).length2();
++}
++
++static void bnInsertReduced(cbtAlignedObjectArray<cbtManifoldPoint>& pts, cbtPersistentManifold* manifold)
++{
++	const int n = pts.size();
++	if (n == 0)
++		return;
++	int chosen[4] = {-1, -1, -1, -1};
++	int count = 0;
++	if (n <= 4)
++	{
++		for (int i = 0; i < n; ++i)
++			chosen[count++] = i;
++	}
++	else
++	{
++		int a = 0;
++		for (int i = 1; i < n; ++i)
++			if (pts[i].m_distance1 < pts[a].m_distance1)
++				a = i;
++		chosen[count++] = a;
++		const cbtVector3 pa = pts[a].m_positionWorldOnB;
++		int b = -1;
++		cbtScalar best = cbtScalar(1e-6);
++		for (int i = 0; i < n; ++i)
++		{
++			const cbtScalar d = (pts[i].m_positionWorldOnB - pa).length2();
++			if (d > best) { best = d; b = i; }
++		}
++		if (b >= 0)
++		{
++			chosen[count++] = b;
++			const cbtVector3 pb = pts[b].m_positionWorldOnB;
++			int c = -1;
++			best = cbtScalar(1e-10);
++			for (int i = 0; i < n; ++i)
++			{
++				const cbtScalar ar = bnTriArea2(pa, pb, pts[i].m_positionWorldOnB);
++				if (ar > best) { best = ar; c = i; }
++			}
++			if (c >= 0)
++			{
++				chosen[count++] = c;
++				const cbtVector3 pc = pts[c].m_positionWorldOnB;
++				const cbtScalar base = cbtSqrt(bnTriArea2(pa, pb, pc));
++				int d = -1;
++				best = base * cbtScalar(1.0001);
++				for (int i = 0; i < n; ++i)
++				{
++					const cbtVector3& p = pts[i].m_positionWorldOnB;
++					const cbtScalar s = cbtSqrt(bnTriArea2(pa, pb, p)) + cbtSqrt(bnTriArea2(pb, pc, p)) + cbtSqrt(bnTriArea2(pc, pa, p));
++					if (s > best) { best = s; d = i; }
++				}
++				if (d >= 0)
++					chosen[count++] = d;
++			}
++		}
++	}
++	for (int k = 0; k < count; ++k)
++	{
++		cbtManifoldPoint& pt = pts[chosen[k]];
++		const int idx = manifold->getCacheEntry(pt);
++		if (idx >= 0)
++			manifold->replaceContactPoint(pt, idx);
++		else
++			manifold->addManifoldPoint(pt);
++	}
++}
++
+ cbtConvexConcaveCollisionAlgorithm::cbtConvexConcaveCollisionAlgorithm(const cbtCollisionAlgorithmConstructionInfo& ci, const cbtCollisionObjectWrapper* body0Wrap, const cbtCollisionObjectWrapper* body1Wrap, bool isSwapped)
+ 	: cbtActivatingCollisionAlgorithm(ci, body0Wrap, body1Wrap),
+ 	  m_cbtConvexTriangleCallback(ci.m_dispatcher1, body0Wrap, body1Wrap, isSwapped),
+@@ -163,7 +243,9 @@ void cbtConvexTriangleCallback::setTimeStepAndCounters(cbtScalar collisionMargin
+ 	const cbtCollisionShape* convexShape = static_cast<const cbtCollisionShape*>(m_convexBodyWrap->getCollisionShape());
+ 	//CollisionShape* triangleShape = static_cast<cbtCollisionShape*>(triBody->m_collisionShape);
+ 	convexShape->getAabb(convexInTriangleSpace, m_aabbMin, m_aabbMax);
+-	cbtScalar extraMargin = collisionMarginTriangle + resultOut->m_closestPointDistanceThreshold;
++	// Bullet NEXT (F1): never query with a zero margin. A mesh with margin 0 under a body resting
++	// exactly on it lost its triangles to rounding and the body dropped for a frame.
++	cbtScalar extraMargin = cbtMax(collisionMarginTriangle, m_manifoldPtr ? m_manifoldPtr->getContactBreakingThreshold() : cbtScalar(0)) + resultOut->m_closestPointDistanceThreshold;
+ 
+ 	cbtVector3 extra(extraMargin, extraMargin, extraMargin);
+ 
+@@ -259,8 +341,18 @@ void cbtConvexConcaveCollisionAlgorithm::processCollision(const cbtCollisionObje
+ 
+ 				m_cbtConvexTriangleCallback.m_manifoldPtr->setBodies(convexBodyWrap->getCollisionObject(), triBodyWrap->getCollisionObject());
+ 
++				cbtAlignedObjectArray<cbtManifoldPoint> bnPoints;
++				if (gBnMeshContactReduction)
++					resultOut->m_bnPointBuffer = &bnPoints;
++
+ 				concaveShape->processAllTriangles(&m_cbtConvexTriangleCallback, m_cbtConvexTriangleCallback.getAabbMin(), m_cbtConvexTriangleCallback.getAabbMax());
+ 
++				if (gBnMeshContactReduction)
++				{
++					resultOut->m_bnPointBuffer = 0;
++					bnInsertReduced(bnPoints, m_cbtConvexTriangleCallback.m_manifoldPtr);
++				}
++
+ 				resultOut->refreshContactPoints();
+ 
+ 				m_cbtConvexTriangleCallback.clearWrapperData();
+diff --git a/src/chrono/collision/bullet/BulletCollision/CollisionDispatch/cbtConvexConcaveCollisionAlgorithm.h b/src/chrono/collision/bullet/BulletCollision/CollisionDispatch/cbtConvexConcaveCollisionAlgorithm.h
+index 9b24219..d87db62 100644
+--- a/src/chrono/collision/bullet/BulletCollision/CollisionDispatch/cbtConvexConcaveCollisionAlgorithm.h
++++ b/src/chrono/collision/bullet/BulletCollision/CollisionDispatch/cbtConvexConcaveCollisionAlgorithm.h
+@@ -22,6 +22,9 @@ subject to the following restrictions:
+ #include "BulletCollision/CollisionShapes/cbtTriangleCallback.h"
+ #include "BulletCollision/NarrowPhaseCollision/cbtPersistentManifold.h"
+ class cbtDispatcher;
++
++/// Bullet NEXT (F1, C1.6b): reduce mesh-pair contacts to four after gathering all triangles.
++extern bool gBnMeshContactReduction;
+ #include "BulletCollision/BroadphaseCollision/cbtBroadphaseProxy.h"
+ #include "cbtCollisionCreateFunc.h"
+ 
+diff --git a/src/chrono/collision/bullet/BulletCollision/CollisionDispatch/cbtInternalEdgeUtility.cpp b/src/chrono/collision/bullet/BulletCollision/CollisionDispatch/cbtInternalEdgeUtility.cpp
+index f09f47f..bf1e8d7 100644
+--- a/src/chrono/collision/bullet/BulletCollision/CollisionDispatch/cbtInternalEdgeUtility.cpp
++++ b/src/chrono/collision/bullet/BulletCollision/CollisionDispatch/cbtInternalEdgeUtility.cpp
+@@ -426,17 +426,21 @@ void cbtAdjustInternalEdgeContacts(cbtManifoldPoint& cp, const cbtCollisionObjec
+ 	if (colObj0Wrap->getCollisionShape()->getShapeType() != TRIANGLE_SHAPE_PROXYTYPE)
+ 		return;
+ 
++	// Bullet NEXT (F1): the mesh is the triangle's parent shape, so meshes that are children of a
++	// compound get their internal-edge data too (upstream only looked at the object's own shape).
++	const cbtCollisionShape* meshShape = colObj0Wrap->m_parent ? colObj0Wrap->m_parent->getCollisionShape() : colObj0Wrap->getCollisionObject()->getCollisionShape();
++
+ 	cbtBvhTriangleMeshShape* trimesh = 0;
+ 
+-	if (colObj0Wrap->getCollisionObject()->getCollisionShape()->getShapeType() == SCALED_TRIANGLE_MESH_SHAPE_PROXYTYPE)
++	if (meshShape->getShapeType() == SCALED_TRIANGLE_MESH_SHAPE_PROXYTYPE)
+ 	{
+-		trimesh = ((cbtScaledBvhTriangleMeshShape*)colObj0Wrap->getCollisionObject()->getCollisionShape())->getChildShape();
++		trimesh = ((cbtScaledBvhTriangleMeshShape*)meshShape)->getChildShape();
+ 	}
+ 	else
+ 	{
+-		if (colObj0Wrap->getCollisionObject()->getCollisionShape()->getShapeType() == TRIANGLE_MESH_SHAPE_PROXYTYPE)
++		if (meshShape->getShapeType() == TRIANGLE_MESH_SHAPE_PROXYTYPE)
+ 		{
+-			trimesh = (cbtBvhTriangleMeshShape*)colObj0Wrap->getCollisionObject()->getCollisionShape();
++			trimesh = (cbtBvhTriangleMeshShape*)meshShape;
+ 		}
+ 	}
+ 	if (trimesh == 0)
+diff --git a/src/chrono/collision/bullet/BulletCollision/CollisionDispatch/cbtManifoldResult.cpp b/src/chrono/collision/bullet/BulletCollision/CollisionDispatch/cbtManifoldResult.cpp
+index 49f8ec4..f12080a 100644
+--- a/src/chrono/collision/bullet/BulletCollision/CollisionDispatch/cbtManifoldResult.cpp
++++ b/src/chrono/collision/bullet/BulletCollision/CollisionDispatch/cbtManifoldResult.cpp
+@@ -98,7 +98,8 @@ cbtManifoldResult::cbtManifoldResult(const cbtCollisionObjectWrapper* body0Wrap,
+ 	  m_index1(-1)
+ #endif  //DEBUG_PART_INDEX
+ 	  ,
+-	  m_closestPointDistanceThreshold(0)
++	  m_closestPointDistanceThreshold(0),
++	  m_bnPointBuffer(0)
+ {
+ }
+ 
+@@ -172,6 +173,21 @@ void cbtManifoldResult::addContactPoint(const cbtVector3& normalOnBInWorld, cons
+ 		newPt.m_index0 = m_index0;
+ 		newPt.m_index1 = m_index1;
+ 	}
++	if (m_bnPointBuffer)
++	{
++		// Bullet NEXT: collect for reduction; the custom-material callback still sees every point
++		// with its own triangle wrapper.
++		if (gContactAddedCallback &&
++			((m_body0Wrap->getCollisionObject()->getCollisionFlags() & cbtCollisionObject::CF_CUSTOM_MATERIAL_CALLBACK) ||
++			 (m_body1Wrap->getCollisionObject()->getCollisionFlags() & cbtCollisionObject::CF_CUSTOM_MATERIAL_CALLBACK)))
++		{
++			const cbtCollisionObjectWrapper* obj0Wrap = isSwapped ? m_body1Wrap : m_body0Wrap;
++			const cbtCollisionObjectWrapper* obj1Wrap = isSwapped ? m_body0Wrap : m_body1Wrap;
++			(*gContactAddedCallback)(newPt, obj0Wrap, newPt.m_partId0, newPt.m_index0, obj1Wrap, newPt.m_partId1, newPt.m_index1);
++		}
++		m_bnPointBuffer->push_back(newPt);
++		return;
++	}
+ 	//printf("depth=%f\n",depth);
+ 	///@todo, check this for any side effects
+ 	if (insertIndex >= 0)
+diff --git a/src/chrono/collision/bullet/BulletCollision/CollisionDispatch/cbtManifoldResult.h b/src/chrono/collision/bullet/BulletCollision/CollisionDispatch/cbtManifoldResult.h
+index 6f60148..e9f7556 100644
+--- a/src/chrono/collision/bullet/BulletCollision/CollisionDispatch/cbtManifoldResult.h
++++ b/src/chrono/collision/bullet/BulletCollision/CollisionDispatch/cbtManifoldResult.h
+@@ -20,6 +20,7 @@ class cbtCollisionObject;
+ struct cbtCollisionObjectWrapper;
+ 
+ #include "BulletCollision/NarrowPhaseCollision/cbtPersistentManifold.h"
++#include "LinearMath/cbtAlignedObjectArray.h"
+ class cbtManifoldPoint;
+ 
+ #include "BulletCollision/NarrowPhaseCollision/cbtDiscreteCollisionDetectorInterface.h"
+@@ -66,7 +67,8 @@ public:
+ 		  m_index0(-1),
+ 		  m_index1(-1)
+ #endif  //DEBUG_PART_INDEX
+-			  m_closestPointDistanceThreshold(0)
++			  m_closestPointDistanceThreshold(0),
++			  m_bnPointBuffer(0)
+ 	{
+ 	}
+ 
+@@ -151,6 +153,10 @@ public:
+ 
+ 	cbtScalar m_closestPointDistanceThreshold;
+ 
++	/// Bullet NEXT (F1, C1.6b): when set, contact points are collected here instead of being
++	/// inserted into the manifold, so all triangles of a mesh pair can be reduced together.
++	cbtAlignedObjectArray<cbtManifoldPoint>* m_bnPointBuffer;
++
+ 	/// in the future we can let the user override the methods to combine restitution and friction
+ 	static cbtScalar calculateCombinedRestitution(const cbtCollisionObject* body0, const cbtCollisionObject* body1);
+ 	static cbtScalar calculateCombinedFriction(const cbtCollisionObject* body0, const cbtCollisionObject* body1);
+diff --git a/src/chrono/collision/bullet/BulletCollision/CollisionShapes/cbtConvexPolyhedron.cpp b/src/chrono/collision/bullet/BulletCollision/CollisionShapes/cbtConvexPolyhedron.cpp
+index e33d211..f90a020 100644
+--- a/src/chrono/collision/bullet/BulletCollision/CollisionShapes/cbtConvexPolyhedron.cpp
++++ b/src/chrono/collision/bullet/BulletCollision/CollisionShapes/cbtConvexPolyhedron.cpp
+@@ -256,7 +256,9 @@ void cbtConvexPolyhedron::initialize2()
+ 			const int e0 = (1 << LargestExtent) & 3;
+ 			const int e1 = (1 << e0) & 3;
+ 
+-			for (int j = 0; j < 1024; j++)
++			// Bullet NEXT (F1): a zero step (flat faces, e.g. the per-triangle polyhedron built for
++			// SAT against meshes) cannot change the extents, so skip the 1,024 identical tests.
++			for (int j = 0; j < 1024 && Step != cbtScalar(0); j++)
+ 			{
+ 				const cbtScalar Saved0 = m_extents[e0];
+ 				const cbtScalar Saved1 = m_extents[e1];
+diff --git a/src/chrono/collision/bullet/ChCollisionSystemBullet.cpp b/src/chrono/collision/bullet/ChCollisionSystemBullet.cpp
+index 1999b28..41b1703 100644
+--- a/src/chrono/collision/bullet/ChCollisionSystemBullet.cpp
++++ b/src/chrono/collision/bullet/ChCollisionSystemBullet.cpp
+@@ -28,6 +28,9 @@
+ #include "chrono/collision/bullet/ChCollisionAlgorithmsBullet.h"
+ #include "chrono/collision/bullet/BulletCollision/CollisionDispatch/cbtCollisionDispatcherMt.h"
+ #include "chrono/collision/bullet/LinearMath/cbtIDebugDraw.h"
++#include "chrono/collision/bullet/cbtNextCollision.h"
++
++#include <cstdlib>
+ 
+ extern cbtScalar gContactBreakingThreshold;
+ 
+@@ -38,6 +41,13 @@ namespace chrono {
+ CH_FACTORY_REGISTER(ChCollisionSystemBullet)
+ CH_UPCASTING(ChCollisionSystemBullet, ChCollisionSystem)
+ 
++// Bullet NEXT collision features (see EnableNextFeatures)
++static bool s_bn_next_features = std::getenv("CH_BN_NEXT_FEATURES") != nullptr;
++
++void ChCollisionSystemBullet::EnableNextFeatures(bool enable) {
++    s_bn_next_features = enable;
++}
++
+ ChCollisionSystemBullet::ChCollisionSystemBullet() : m_debug_drawer(nullptr) {
+     bt_collision_configuration = new cbtDefaultCollisionConfiguration();
+ 
+@@ -50,6 +60,8 @@ ChCollisionSystemBullet::ChCollisionSystemBullet() : m_debug_drawer(nullptr) {
+ 
+     bt_broadphase = new cbtDbvtBroadphase();
+     bt_collision_world = new cbtCollisionWorld(bt_dispatcher, bt_broadphase, bt_collision_configuration);
++    if (s_bn_next_features)
++        cbtNextConfigureCollision(bt_collision_world);
+ 
+     // custom collision for cylinder-sphere case, for improved precision
+     ////cbtCollisionAlgorithmCreateFunc* m_collision_sph_cyl = new cbtSphereCylinderCollisionAlgorithm::CreateFunc;
+@@ -128,6 +140,10 @@ void ChCollisionSystemBullet::Add(std::shared_ptr<ChCollisionModel> model) {
+     bt_model->Populate();
+     if (bt_model->GetBulletObject()->getCollisionShape()) {
+         model->SyncPosition();
++        if (s_bn_next_features) {
++            cbtNextEnableHullClipping(bt_model->GetBulletObject()->getCollisionShape());
++            cbtNextEnableActiveEdges(bt_model->GetBulletObject());  // meshes and heightfields only
++        }
+         bt_collision_world->addCollisionObject(bt_model->bt_collision_object.get(),  //
+                                                bt_model->model->GetFamilyGroup(),    //
+                                                bt_model->model->GetFamilyMask());
+diff --git a/src/chrono/collision/bullet/ChCollisionSystemBullet.h b/src/chrono/collision/bullet/ChCollisionSystemBullet.h
+index d20ecba..bcd0ad0 100644
+--- a/src/chrono/collision/bullet/ChCollisionSystemBullet.h
++++ b/src/chrono/collision/bullet/ChCollisionSystemBullet.h
+@@ -55,6 +55,11 @@ class ChApi ChCollisionSystemBullet : public ChCollisionSystem {
+     /// Set the number of OpenMP threads for collision detection.
+     virtual void SetNumThreads(int nthreads) override;
+ 
++    /// Bullet NEXT collision features (hull clipping, active mesh edges, SAT for triangles, one-shot
++    /// mesh contact reduction) for systems created from now on. Off by default; the environment
++    /// variable CH_BN_NEXT_FEATURES=1 turns it on for a whole program (used by the unit tests).
++    static void EnableNextFeatures(bool enable);
++
+     /// Run the algorithm and finds all the contacts.
+     /// (Contacts will be managed by the Bullet persistent contact cache).
+     virtual void Run() override;
+diff --git a/src/chrono/collision/bullet/cbtNextCollision.cpp b/src/chrono/collision/bullet/cbtNextCollision.cpp
+new file mode 100644
+index 0000000..b56b4f1
+--- /dev/null
++++ b/src/chrono/collision/bullet/cbtNextCollision.cpp
+@@ -0,0 +1,230 @@
++/*
++Bullet NEXT collision features for Chrono's Bullet copy (F1, T1.7).
++Copyright (c) 2026 BGE NEXT contributors. Same zlib terms as Bullet.
++
++The collision-only part of Bullet NEXT's cbtNextFeatures: hull clipping, active edges with the
++flat-region rule and exact sphere-on-face contacts, and SAT for triangles plus the one-shot mesh
++contact reduction. Chrono's own dynamics and CCD are untouched.
++*/
++#define BT_NEXT_HEIGHTFIELD_EDGES 0  // Chrono's heightfield has no internal-edge data
++#include "cbtNextCollision.h"
++
++#include "BulletCollision/CollisionDispatch/cbtCollisionWorld.h"
++#include "BulletCollision/CollisionDispatch/cbtInternalEdgeUtility.h"
++#include "BulletCollision/CollisionDispatch/cbtCollisionObjectWrapper.h"
++#include "BulletCollision/CollisionDispatch/cbtManifoldResult.h"
++#include "BulletCollision/CollisionShapes/cbtBvhTriangleMeshShape.h"
++#include "BulletCollision/CollisionShapes/cbtScaledBvhTriangleMeshShape.h"
++#include "BulletCollision/CollisionShapes/cbtHeightfieldTerrainShape.h"
++#include "BulletCollision/CollisionShapes/cbtTriangleInfoMap.h"
++#include "BulletCollision/CollisionShapes/cbtPolyhedralConvexShape.h"
++#include "BulletCollision/CollisionShapes/cbtCompoundShape.h"
++#include "BulletCollision/BroadphaseCollision/cbtBroadphaseProxy.h"
++#include "BulletCollision/BroadphaseCollision/cbtQuantizedBvh.h"
++#include "BulletCollision/CollisionShapes/cbtTriangleShape.h"
++#include "BulletCollision/CollisionShapes/cbtSphereShape.h"
++#include "BulletCollision/CollisionDispatch/cbtConvexConcaveCollisionAlgorithm.h"
++
++int cbtNextEnableHullClipping(cbtCollisionShape* shape)
++{
++	if (!shape)
++		return 0;
++	if (shape->isCompound())
++	{
++		cbtCompoundShape* c = static_cast<cbtCompoundShape*>(shape);
++		int n = 0;
++		for (int i = 0; i < c->getNumChildShapes(); ++i)
++			n += cbtNextEnableHullClipping(c->getChildShape(i));
++		return n;
++	}
++	if (shape->isPolyhedral())
++	{
++		cbtPolyhedralConvexShape* p = static_cast<cbtPolyhedralConvexShape*>(shape);
++		if (!p->getConvexPolyhedron())
++			p->initializePolyhedralFeatures();
++		return 1;
++	}
++	return 0;
++}
++
++// --- Active edges -------------------------------------------------------------------------
++// Heightfields keep internal-edge data from Bullet 2.85 on; copies built on an older Bullet
++// (Chrono's) set this to 0.
++#ifndef BT_NEXT_HEIGHTFIELD_EDGES
++#define BT_NEXT_HEIGHTFIELD_EDGES 1
++#endif
++
++bool gBnFlatRegionRule = true;
++static ContactAddedCallback s_previousContactAdded = 0;
++static bool s_activeEdgesInstalled = false;
++
++static bool isTriangle(const cbtCollisionObjectWrapper* w)
++{
++	return w && w->getCollisionShape()->getShapeType() == TRIANGLE_SHAPE_PROXYTYPE;
++}
++
++// The triangle's parent wrapper holds the mesh shape, also when the mesh is a compound child.
++static cbtTriangleInfoMap* meshInfoMap(const cbtCollisionObjectWrapper* triWrap)
++{
++	const cbtCollisionShape* shape = triWrap->m_parent ? triWrap->m_parent->getCollisionShape() : triWrap->getCollisionObject()->getCollisionShape();
++	switch (shape->getShapeType())
++	{
++		case SCALED_TRIANGLE_MESH_SHAPE_PROXYTYPE:
++			return const_cast<cbtTriangleInfoMap*>(static_cast<const cbtScaledBvhTriangleMeshShape*>(shape)->getChildShape()->getTriangleInfoMap());
++		case TRIANGLE_MESH_SHAPE_PROXYTYPE:
++			return const_cast<cbtTriangleInfoMap*>(static_cast<const cbtBvhTriangleMeshShape*>(shape)->getTriangleInfoMap());
++#if BT_NEXT_HEIGHTFIELD_EDGES
++		case TERRAIN_SHAPE_PROXYTYPE:
++			return const_cast<cbtTriangleInfoMap*>(static_cast<const cbtHeightfieldTerrainShape*>(shape)->getTriangleInfoMap());
++#endif
++		default:
++			return 0;
++	}
++}
++
++// Jolt-style rule for flat regions: when every edge of the touched triangle joins a coplanar
++// neighbour (within 5 degrees), no edge or vertex can be a real feature, so the contact normal
++// must be the face normal. Mesh is body B here.
++static void flatRegionNormal(cbtManifoldPoint& cp, const cbtCollisionObjectWrapper* triWrap, int partId, int index)
++{
++	cbtTriangleInfoMap* map = meshInfoMap(triWrap);
++	if (!map)
++		return;
++	const int hash = (partId << (31 - MAX_NUM_PARTS_IN_BITS)) | index;
++	const cbtTriangleInfo* info = map->find(hash);
++	if (!info)
++		return;
++	const cbtScalar flat = cbtScalar(0.0873);  // 5 degrees
++	if (cbtFabs(info->m_edgeV0V1Angle) > flat || cbtFabs(info->m_edgeV1V2Angle) > flat || cbtFabs(info->m_edgeV2V0Angle) > flat)
++		return;
++	const cbtTriangleShape* tri = static_cast<const cbtTriangleShape*>(triWrap->getCollisionShape());
++	cbtVector3 n;
++	tri->calcNormal(n);
++	n = triWrap->getWorldTransform().getBasis() * n;
++	if (n.dot(cp.m_normalWorldOnB) < 0)
++		n = -n;
++	cp.m_normalWorldOnB = n;
++	cp.m_positionWorldOnB = cp.m_positionWorldOnA - n * cp.m_distance1;
++	cp.m_localPointB = triWrap->getWorldTransform().invXform(cp.m_positionWorldOnB);
++}
++
++// Mesh-as-B convention. After the edge correction swaps the normal for the face normal, the
++// point on A is still where the edge test put it. For a sphere that point is off-centre, so a
++// rolling sphere gets a false approach speed (spin x lever arm) and pops off the mesh. Rebuild
++// the sphere contact exactly from the face plane instead.
++static void sphereOnFace(cbtManifoldPoint& cp, const cbtCollisionObjectWrapper* triWrap, const cbtCollisionObjectWrapper* otherWrap)
++{
++	if (otherWrap->getCollisionShape()->getShapeType() != SPHERE_SHAPE_PROXYTYPE)
++		return;
++	const cbtTriangleShape* tri = static_cast<const cbtTriangleShape*>(triWrap->getCollisionShape());
++	cbtVector3 v0;
++	tri->getVertex(0, v0);
++	v0 = triWrap->getWorldTransform() * v0;
++	const cbtVector3& n = cp.m_normalWorldOnB;
++	const cbtVector3 c = otherWrap->getWorldTransform().getOrigin();
++	const cbtScalar r = static_cast<const cbtSphereShape*>(otherWrap->getCollisionShape())->getRadius();
++	const cbtScalar h = (c - v0).dot(n);
++	cp.m_distance1 = h - r;
++	cp.m_positionWorldOnB = c - n * h;
++	cp.m_positionWorldOnA = c - n * r;
++	cp.m_localPointB = triWrap->getWorldTransform().invXform(cp.m_positionWorldOnB);
++	cp.m_localPointA = otherWrap->getWorldTransform().invXform(cp.m_positionWorldOnA);
++}
++
++static void correctMeshContact(cbtManifoldPoint& cp, const cbtCollisionObjectWrapper* triWrap,
++							   const cbtCollisionObjectWrapper* otherWrap, int partId, int index)
++{
++	const cbtVector3 before = cp.m_normalWorldOnB;
++	cbtAdjustInternalEdgeContacts(cp, triWrap, otherWrap, partId, index);
++	if (gBnFlatRegionRule)
++		flatRegionNormal(cp, triWrap, partId, index);
++	if (before.dot(cp.m_normalWorldOnB) < cbtScalar(0.99999))
++		sphereOnFace(cp, triWrap, otherWrap);
++}
++
++static bool bnContactAdded(cbtManifoldPoint& cp, const cbtCollisionObjectWrapper* w0, int partId0, int index0,
++						   const cbtCollisionObjectWrapper* w1, int partId1, int index1)
++{
++	if (isTriangle(w1))
++	{
++		// Mesh is body B: the utility's own convention.
++		correctMeshContact(cp, w1, w0, partId1, index1);
++	}
++	else if (isTriangle(w0))
++	{
++		// Mesh is body A: flip the point into the mesh-as-B convention, correct, flip back.
++		cbtSwap(cp.m_positionWorldOnA, cp.m_positionWorldOnB);
++		cbtSwap(cp.m_localPointA, cp.m_localPointB);
++		cp.m_normalWorldOnB = -cp.m_normalWorldOnB;
++		correctMeshContact(cp, w0, w1, partId0, index0);
++		cbtSwap(cp.m_positionWorldOnA, cp.m_positionWorldOnB);
++		cbtSwap(cp.m_localPointA, cp.m_localPointB);
++		cp.m_normalWorldOnB = -cp.m_normalWorldOnB;
++	}
++	if (s_previousContactAdded)
++		return s_previousContactAdded(cp, w0, partId0, index0, w1, partId1, index1);
++	return false;
++}
++
++// Bake internal-edge data for every mesh and heightfield in the shape (compounds recursively).
++static int bakeEdgeInfo(cbtCollisionShape* shape)
++{
++	if (shape->isCompound())
++	{
++		cbtCompoundShape* c = static_cast<cbtCompoundShape*>(shape);
++		int n = 0;
++		for (int i = 0; i < c->getNumChildShapes(); ++i)
++			n += bakeEdgeInfo(c->getChildShape(i));
++		return n;
++	}
++	cbtBvhTriangleMeshShape* bvh = 0;
++	if (shape->getShapeType() == SCALED_TRIANGLE_MESH_SHAPE_PROXYTYPE)
++		bvh = static_cast<cbtScaledBvhTriangleMeshShape*>(shape)->getChildShape();
++	else if (shape->getShapeType() == TRIANGLE_MESH_SHAPE_PROXYTYPE)
++		bvh = static_cast<cbtBvhTriangleMeshShape*>(shape);
++	if (bvh)
++	{
++		if (!bvh->getTriangleInfoMap())
++		{
++			cbtTriangleInfoMap* map = new cbtTriangleInfoMap();  // owned by the shape's lifetime
++			cbtGenerateInternalEdgeInfo(bvh, map);
++		}
++		return 1;
++	}
++#if BT_NEXT_HEIGHTFIELD_EDGES
++	if (shape->getShapeType() == TERRAIN_SHAPE_PROXYTYPE)
++	{
++		cbtHeightfieldTerrainShape* hf = static_cast<cbtHeightfieldTerrainShape*>(shape);
++		if (!hf->getTriangleInfoMap())
++		{
++			cbtTriangleInfoMap* map = new cbtTriangleInfoMap();
++			cbtGenerateInternalEdgeInfo(hf, map);
++		}
++		return 1;
++	}
++#endif
++	return 0;
++}
++
++bool cbtNextEnableActiveEdges(cbtCollisionObject* obj)
++{
++	if (!obj || !obj->getCollisionShape())
++		return false;
++	if (bakeEdgeInfo(obj->getCollisionShape()) == 0)
++		return false;
++
++	obj->setCollisionFlags(obj->getCollisionFlags() | cbtCollisionObject::CF_CUSTOM_MATERIAL_CALLBACK);
++	if (!s_activeEdgesInstalled)
++	{
++		s_previousContactAdded = gContactAddedCallback;
++		gContactAddedCallback = bnContactAdded;
++		s_activeEdgesInstalled = true;
++	}
++	return true;
++}
++
++void cbtNextConfigureCollision(cbtCollisionWorld* world)
++{
++	world->getDispatchInfo().m_enableSatConvex = true;
++	gBnMeshContactReduction = true;
++}
+diff --git a/src/chrono/collision/bullet/cbtNextCollision.h b/src/chrono/collision/bullet/cbtNextCollision.h
+new file mode 100644
+index 0000000..aab97d4
+--- /dev/null
++++ b/src/chrono/collision/bullet/cbtNextCollision.h
+@@ -0,0 +1,26 @@
++/*
++Bullet NEXT collision features for Chrono's Bullet copy (F1, T1.7).
++Copyright (c) 2026 BGE NEXT contributors. Same zlib terms as Bullet.
++*/
++#ifndef BT_NEXT_COLLISION_H
++#define BT_NEXT_COLLISION_H
++
++class cbtCollisionShape;
++class cbtCollisionObject;
++class cbtCollisionWorld;
++
++/// Polyhedral features for every convex polyhedron in the shape (compounds recursively), so hull
++/// pairs get clipped contact faces. Returns the number of shapes set up.
++int cbtNextEnableHullClipping(cbtCollisionShape* shape);
++
++/// Meshes in the object (also compound children): bake internal-edge data and
++/// correct contact normals on internal edges (no ghost bumps). False when there is none.
++bool cbtNextEnableActiveEdges(cbtCollisionObject* obj);
++
++/// SAT for convex-triangle pairs and one-shot mesh contact reduction.
++void cbtNextConfigureCollision(cbtCollisionWorld* world);
++
++/// Flat-region rule of the active-edge correction (on by default).
++extern bool gBnFlatRegionRule;
++
++#endif
