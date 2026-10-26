@@ -213,7 +213,8 @@ inline int btIsDoublePrecision()
 		#else//USE_LIBSPE2
 	//non-windows systems
 
-			#if (defined (__APPLE__) && (!defined (BT_USE_DOUBLE_PRECISION)))
+			// Bullet NEXT (F1, C1.2): SSE on Linux/BSD x86-64 too, not only on Apple and MSVC.
+			#if ((defined (__APPLE__) || ((defined (__linux__) || defined (__FreeBSD__)) && defined (__x86_64__))) && (!defined (BT_USE_DOUBLE_PRECISION)) && !defined (BN_NO_LINUX_SIMD))
 				#if defined (__i386__) || defined (__x86_64__)
 					#define BT_USE_SIMD_VECTOR3
 					#define BT_USE_SSE
