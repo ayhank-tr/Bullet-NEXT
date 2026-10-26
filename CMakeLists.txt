@@ -7,7 +7,15 @@ set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_EXTENSIONS OFF)
 set(CMAKE_POSITION_INDEPENDENT_CODE ON)
 
-if(NOT CMAKE_BUILD_TYPE AND NOT CMAKE_CONFIGURATION_TYPES)
+# Embedded mode (F1, C1.11): added to the game engine with add_subdirectory(). Only the two
+# backends are built there; the engine's build type and flags are left alone.
+if(CMAKE_SOURCE_DIR STREQUAL PROJECT_SOURCE_DIR)
+  set(BN_EMBEDDED OFF)
+else()
+  set(BN_EMBEDDED ON)
+endif()
+
+if(NOT BN_EMBEDDED AND NOT CMAKE_BUILD_TYPE AND NOT CMAKE_CONFIGURATION_TYPES)
   set(CMAKE_BUILD_TYPE Release)
 endif()
 
@@ -18,11 +26,16 @@ else()
   add_compile_options(-fno-fast-math -ffp-contract=off -w)
 endif()
 
-option(BN_BUILD_ORIG "Build the unrenamed Bullet 2.84 (Blender 2.79b) copy for fidelity tests" ON)
+if(BN_EMBEDDED)
+  set(_bn_dev OFF)
+else()
+  set(_bn_dev ON)
+endif()
+option(BN_BUILD_ORIG "Build the unrenamed Bullet 2.84 (Blender 2.79b) copy for fidelity tests" ${_bn_dev})
 option(BN_BUILD_LEGACY "Build the frozen, renamed legacy backend" ON)
 option(BN_BUILD_NEXT "Build Bullet NEXT (next/, upstream base + F1 changes)" ON)
-option(BN_BUILD_UPSTREAM "Build pristine upstream for comparison" ON)
-option(BN_BUILD_HARNESS "Build the golden harness" ON)
+option(BN_BUILD_UPSTREAM "Build pristine upstream for comparison" ${_bn_dev})
+option(BN_BUILD_HARNESS "Build the golden harness" ${_bn_dev})
 
 function(bn_add_bullet_lib target root)
   if(EXISTS "${root}/SOURCES.txt")
@@ -63,3 +76,9 @@ endif()
 if(BN_BUILD_HARNESS AND EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/harness/CMakeLists.txt")
   add_subdirectory(harness)
 endif()
+
+# What the game engine needs to build its two copies of the physics module (C1.11).
+set(BN_NEXT_INCLUDE_DIR "${CMAKE_CURRENT_SOURCE_DIR}/next" CACHE INTERNAL "Bullet NEXT headers")
+set(BN_LEGACY_INCLUDE_DIR "${CMAKE_CURRENT_SOURCE_DIR}/legacy" CACHE INTERNAL "Legacy backend headers")
+set(BN_C_API_INCLUDE_DIR "${CMAKE_CURRENT_SOURCE_DIR}/blender_c_api" CACHE INTERNAL "Blender C API shim")
+set(BN_RENAME_TOOL "${CMAKE_CURRENT_SOURCE_DIR}/tools/rename_legacy.py" CACHE INTERNAL "Legacy rename tool")

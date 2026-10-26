@@ -132,6 +132,11 @@ public:
 	virtual ~btDiscreteDynamicsWorldMt();
 
 	virtual int stepSimulation(btScalar timeStep, int maxSubSteps, btScalar fixedTimeStep) BT_OVERRIDE;
+
+	/// Bullet NEXT (F1, C1.11): swap the large-island solver (NULL: the pool solves every island).
+	/// The caller keeps ownership, as with setConstraintSolver().
+	void setConstraintSolverMt(btConstraintSolver * solver) { m_constraintSolverMt = solver; }
+	btConstraintSolver* getConstraintSolverMt() { return m_constraintSolverMt; }
 };
 
 #endif  //BT_DISCRETE_DYNAMICS_WORLD_H

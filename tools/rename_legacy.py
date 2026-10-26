@@ -15,6 +15,8 @@ Rules
 Usage
   rename_legacy.py tree  <src_dir> <dst_dir>     rename a whole source tree
   rename_legacy.py files <dst_dir> <file>...     rename single files (used for the harness)
+  --extra <names.txt>   (before the mode, repeatable) more names to prefix with "btl_";
+                        used for the game engine's legacy copy of its physics module
 """
 import os
 import re
@@ -115,6 +117,13 @@ def do_tree(src_dir, dst_dir):
 
 
 def main(argv):
+    argv = list(argv)
+    while len(argv) > 2 and argv[1] == "--extra":
+        for line in open(argv[2]):
+            line = line.strip()
+            if line and not line.startswith("#"):
+                EXTRA.add(line)
+        del argv[1:3]
     if len(argv) >= 4 and argv[1] == "tree":
         do_tree(argv[2], argv[3])
     elif len(argv) >= 4 and argv[1] == "files":

@@ -1,0 +1,1440 @@
+diff --git a/.github/workflows/build-player.yml b/.github/workflows/build-player.yml
+index f69b07f..c442f12 100644
+--- a/.github/workflows/build-player.yml
++++ b/.github/workflows/build-player.yml
+@@ -58,6 +58,11 @@ jobs:
+         with:
+           path: blender
+ 
++      # Bullet NEXT (extern/bullet_next) is a submodule; the other submodules are not needed
++      - name: Fetch Bullet NEXT
++        shell: pwsh
++        run: git -C blender submodule update --init extern/bullet_next
++
+       - name: Restore pre-compiled libraries
+         uses: actions/cache/restore@v4
+         with:
+@@ -124,6 +129,11 @@ jobs:
+         with:
+           path: blender
+ 
++      # Bullet NEXT (extern/bullet_next) is a submodule; the other submodules are not needed
++      - name: Fetch Bullet NEXT
++        shell: pwsh
++        run: git -C blender submodule update --init extern/bullet_next
++
+       - name: Restore pre-compiled libraries
+         uses: actions/cache/restore@v4
+         with:
+diff --git a/.gitmodules b/.gitmodules
+index bd1812d..634559c 100644
+--- a/.gitmodules
++++ b/.gitmodules
+@@ -18,3 +18,6 @@
+ 	url = ../blender-dev-tools.git
+ 	ignore = all
+ 	branch = blender-v2.79-release
++[submodule "extern/bullet_next"]
++	path = extern/bullet_next
++	url = https://github.com/ayhank-tr/Bullet-NEXT.git
+diff --git a/CMakeLists.txt b/CMakeLists.txt
+index bfea2dd..5f05eb9 100644
+--- a/CMakeLists.txt
++++ b/CMakeLists.txt
+@@ -234,6 +234,7 @@ option(WITH_IK_SOLVER     "Enable Legacy IK solver (only disable for development
+ option(WITH_FFTW3         "Enable FFTW3 support (Used for smoke, ocean sim, and audio effects)" ${_init_FFTW3})
+ option(WITH_BULLET        "Enable Bullet (Physics Engine)" ON)
+ option(WITH_SYSTEM_BULLET "Use the systems bullet library (currently unsupported due to missing features in upstream!)" )
++option(WITH_BULLET_NEXT "Bullet NEXT (extern/bullet_next): scenes pick Bullet NEXT or 2.79b's frozen Bullet" ON)
+ mark_as_advanced(WITH_SYSTEM_BULLET)
+ option(WITH_GAMEENGINE    "Enable Game Engine" ${_init_GAMEENGINE})
+ if(APPLE)
+@@ -1222,6 +1223,22 @@ else()
+ 	# set(BULLET_LIBRARIES "")
+ endif()
+ 
++# Bullet NEXT replaces extern/bullet2. It carries two backends: Bullet NEXT (headers below; also used
++# by Blender's rigid body world) and the frozen, renamed Bullet 2.84 of Blender 2.79b, which runs the
++# game engine for old files and serves Bullet's C API (cloth collision, convex hull) to Blender.
++if(WITH_BULLET AND WITH_BULLET_NEXT AND NOT WITH_SYSTEM_BULLET)
++	if(NOT EXISTS "${CMAKE_SOURCE_DIR}/extern/bullet_next/CMakeLists.txt")
++		message(FATAL_ERROR "WITH_BULLET_NEXT: extern/bullet_next is missing, run: git submodule update --init extern/bullet_next")
++	endif()
++	set(BULLET_INCLUDE_DIRS
++		"${CMAKE_SOURCE_DIR}/extern/bullet_next/next"
++		"${CMAKE_SOURCE_DIR}/extern/bullet_next/blender_c_api"
++	)
++	add_definitions(-DWITH_BULLET_NEXT -DBT_THREADSAFE=1)
++else()
++	set(WITH_BULLET_NEXT OFF)
++endif()
++
+ #-----------------------------------------------------------------------------
+ # Configure Python.
+ 
+diff --git a/build_files/cmake/macros.cmake b/build_files/cmake/macros.cmake
+index 6303119..8d796bf 100644
+--- a/build_files/cmake/macros.cmake
++++ b/build_files/cmake/macros.cmake
+@@ -629,6 +629,7 @@ function(SETUP_BLENDER_SORTED_LIBS)
+ 		ge_converter
+ 		ge_phys_dummy
+ 		ge_phys_bullet
++		ge_phys_bullet_legacy
+ 		bf_intern_smoke
+ 		extern_lzma
+ 		extern_curve_fit_nd
+@@ -740,7 +741,12 @@ function(SETUP_BLENDER_SORTED_LIBS)
+ 	endif()
+ 
+ 	if(WITH_BULLET AND NOT WITH_SYSTEM_BULLET)
+-		list_insert_after(BLENDER_SORTED_LIBS "ge_logic_ngnetwork" "extern_bullet")
++		if(WITH_BULLET_NEXT)
++			list_insert_after(BLENDER_SORTED_LIBS "ge_logic_ngnetwork" "bn_bullet_next")
++			list_insert_after(BLENDER_SORTED_LIBS "bn_bullet_next" "bn_bullet_legacy")
++		else()
++			list_insert_after(BLENDER_SORTED_LIBS "ge_logic_ngnetwork" "extern_bullet")
++		endif()
+ 	endif()
+ 
+ 	if(WITH_GAMEENGINE_DECKLINK)
+diff --git a/doc/python_api/rst/bge.constraints.rst b/doc/python_api/rst/bge.constraints.rst
+index ed965c3..fa0977a 100644
+--- a/doc/python_api/rst/bge.constraints.rst
++++ b/doc/python_api/rst/bge.constraints.rst
+@@ -107,6 +107,9 @@ Functions
+ 
+    Sets the CCD (Continous Colision Detection) mode in the Physics Environment.
+ 
++   With Bullet NEXT, 0 turns automatic continuous collision detection off and any other value turns
++   it on. With the 2.79b Bullet the call has no effect.
++
+    :arg ccdMode: The new CCD mode.
+    :type ccdMode: int
+ 
+@@ -166,14 +169,16 @@ Functions
+ 
+    .. note::
+ 
+-      Not implemented
++      Only with Bullet NEXT; no effect with the 2.79b Bullet.
+ 
+-   Sets the linear air damping for rigidbodies.
++   Sets an extra linear damping (per second) for every dynamic rigid body.
+ 
+ .. function:: setNumIterations(numiter)
+ 
+    Sets the number of iterations for an iterative constraint solver.
+ 
++   Only Bullet NEXT applies the value; the 2.79b Bullet always uses 10.
++
+    :arg numiter: New number of iterations.
+    :type numiter: int
+ 
+@@ -211,9 +216,36 @@ Functions
+ 
+    Sets the solver type.
+ 
++   With Bullet NEXT: 1 is the sequential impulse solver (the 2.79b solver, default) and 2 is the
++   NNCG solver, which keeps stacks and chains stiffer.
++
+    :arg solverType: The new type of the solver.
+    :type solverType: int
+ 
++.. function:: setERPNonContact(erp)
++
++   Sets the Error Reduction Parameter for joints: the share of a joint's error fixed in the next step.
++   Only with Bullet NEXT.
++
++   :arg erp: The ERP, 0.0 to 1.0 (default 0.2).
++   :type erp: float
++
++.. function:: setERPContact(erp2)
++
++   Sets the Error Reduction Parameter for contacts: how fast overlapping objects are pushed apart.
++   Only with Bullet NEXT.
++
++   :arg erp2: The contact ERP, 0.0 to 1.0 (default 0.8, as in Blender 2.79b).
++   :type erp2: float
++
++.. function:: setCFM(cfm)
++
++   Sets the Constraint Force Mixing: values above zero make joints and contacts softer.
++   Only with Bullet NEXT.
++
++   :arg cfm: The CFM, 0.0 to 10000.0 (default 0.0).
++   :type cfm: float
++
+ .. function:: setSorConstant(sor)
+ 
+    .. note::
+@@ -228,7 +260,7 @@ Functions
+ 
+    .. note::
+ 
+-      Not implemented
++      Not implemented. Bullet NEXT always uses EPA for penetration depth.
+ 
+ 
+ Constants
+diff --git a/extern/CMakeLists.txt b/extern/CMakeLists.txt
+index f7e9852..90cdde3 100644
+--- a/extern/CMakeLists.txt
++++ b/extern/CMakeLists.txt
+@@ -42,7 +42,13 @@ add_subdirectory(wcwidth)
+ 
+ if(WITH_BULLET)
+ 	if(NOT WITH_SYSTEM_BULLET)
+-		add_subdirectory(bullet2)
++		if(WITH_BULLET_NEXT)
++			# Bullet NEXT (github.com/ayhank-tr/Bullet-NEXT): bn_bullet_next and bn_bullet_legacy
++			add_subdirectory(bullet_next)
++			set_property(GLOBAL APPEND PROPERTY BLENDER_LINK_LIBS bn_bullet_next bn_bullet_legacy)
++		else()
++			add_subdirectory(bullet2)
++		endif()
+ 	endif()
+ endif()
+ 
+diff --git a/intern/rigidbody/CMakeLists.txt b/intern/rigidbody/CMakeLists.txt
+index 5d84c2c..76934b4 100644
+--- a/intern/rigidbody/CMakeLists.txt
++++ b/intern/rigidbody/CMakeLists.txt
+@@ -35,4 +35,26 @@ set(SRC
+ 	RBI_api.h
+ )
+ 
++if(WITH_BULLET_NEXT)
++	# Bullet NEXT (C1.11): Blender's rigid body world keeps 2.79b's Bullet exactly. Its source is
++	# renamed for Bullet NEXT's frozen legacy backend (btX -> btlX) and built against that.
++	find_package(Python3 REQUIRED COMPONENTS Interpreter)
++	set(_gen ${CMAKE_CURRENT_BINARY_DIR}/gen)
++	add_custom_command(
++		OUTPUT ${_gen}/rb_bullet_api.cpp
++		COMMAND ${Python3_EXECUTABLE} ${BN_RENAME_TOOL} files ${_gen} ${CMAKE_CURRENT_SOURCE_DIR}/rb_bullet_api.cpp
++		DEPENDS ${CMAKE_CURRENT_SOURCE_DIR}/rb_bullet_api.cpp ${BN_RENAME_TOOL}
++		COMMENT "Bullet NEXT: renaming the rigid body module for the legacy Bullet"
++	)
++	set(SRC
++		${_gen}/rb_bullet_api.cpp
++
++		RBI_api.h
++	)
++	set(INC_SYS
++		${BN_LEGACY_INCLUDE_DIR}
++	)
++	unset(_gen)
++endif()
++
+ blender_add_lib(bf_intern_rigidbody "${SRC}" "${INC}" "${INC_SYS}")
+diff --git a/release/scripts/startup/bl_ui/properties_game.py b/release/scripts/startup/bl_ui/properties_game.py
+index 4ec0e61..6263bd4 100644
+--- a/release/scripts/startup/bl_ui/properties_game.py
++++ b/release/scripts/startup/bl_ui/properties_game.py
+@@ -621,6 +621,31 @@ class SCENE_PT_game_physics(SceneButtonsPanel, Panel):
+             sub = col.row()
+             sub.prop(gs, "deactivation_time", text="Time")
+ 
++            if gs.physics_engine == 'BULLET_NEXT':
++                # Bullet NEXT: solver and collision options
++                split = layout.split()
++
++                col = split.column()
++                col.label(text="Solver:")
++                col.prop(gs, "physics_solver", text="")
++                sub = col.column(align=True)
++                sub.prop(gs, "physics_solver_iterations", text="Iterations")
++                sub.prop(gs, "physics_threads", text="Threads")
++
++                col = split.column()
++                col.label(text="Error Correction:")
++                sub = col.column(align=True)
++                sub.prop(gs, "erp_parameter", text="Joint ERP")
++                sub.prop(gs, "erp2_parameter", text="Contact ERP")
++                sub.prop(gs, "cfm_parameter", text="CFM")
++
++                col = layout.column()
++                col.label(text="Collision:")
++                row = col.row()
++                row.prop(gs, "use_physics_ccd")
++                row.prop(gs, "use_physics_smooth_meshes")
++                row.prop(gs, "use_physics_hull_clipping")
++
+             col = layout.column()
+             col.prop(gs, "use_occlusion_culling", text="Occlusion Culling")
+             sub = col.column()
+diff --git a/source/blender/blenkernel/intern/scene.c b/source/blender/blenkernel/intern/scene.c
+index cf11aac..64a2873 100644
+--- a/source/blender/blenkernel/intern/scene.c
++++ b/source/blender/blenkernel/intern/scene.c
+@@ -783,6 +783,11 @@ void BKE_scene_init(Scene *sce)
+ 	sce->gm.angulardeactthreshold = 1.0f;
+ 	sce->gm.deactivationtime = 0.0f;
+ 
++	/* Bullet NEXT solver defaults (contact ERP as in Blender 2.79b's Bullet) */
++	sce->gm.erp = 0.2f;
++	sce->gm.erp2 = 0.8f;
++	sce->gm.cfm = 0.0f;
++
+ 	sce->gm.flag = GAME_DISPLAY_LISTS;
+ 	sce->gm.matmode = GAME_MAT_MULTITEX;
+ 
+diff --git a/source/blender/blenloader/intern/versioning_270.c b/source/blender/blenloader/intern/versioning_270.c
+index 409e71e..1d4356a 100644
+--- a/source/blender/blenloader/intern/versioning_270.c
++++ b/source/blender/blenloader/intern/versioning_270.c
+@@ -1672,6 +1672,15 @@ void blo_do_versions_270(FileData *fd, Library *UNUSED(lib), Main *main)
+ 		}
+ 	}
+ 
++	/* Bullet NEXT: solver settings (the rest of its fields default to zero) */
++	if (!DNA_struct_elem_find(fd->filesdna, "GameData", "float", "erp2")) {
++		for (Scene *scene = main->scene.first; scene; scene = scene->id.next) {
++			scene->gm.erp = 0.2f;
++			scene->gm.erp2 = 0.8f;
++			scene->gm.cfm = 0.0f;
++		}
++	}
++
+ 	/* fork: modern renderer settings, saved with the scene from now on */
+ 	if (!DNA_struct_elem_find(fd->filesdna, "GameData", "GameRendererSettings", "renderer")) {
+ 		for (Scene *scene = main->scene.first; scene; scene = scene->id.next) {
+diff --git a/source/blender/makesdna/DNA_scene_types.h b/source/blender/makesdna/DNA_scene_types.h
+index a185d1f..d5885b4 100644
+--- a/source/blender/makesdna/DNA_scene_types.h
++++ b/source/blender/makesdna/DNA_scene_types.h
+@@ -954,6 +954,14 @@ typedef struct GameData {
+ 	int scehysteresis, pad5;
+ 
+ 	struct GameRendererSettings renderer;
++
++	/* Bullet NEXT (physicsEngine == WOPHY_BULLET_NEXT); zero means the default */
++	short solverType;			/* GAME_SOLVER_*, UPBGE layout */
++	short solverIterations;		/* 0 = Bullet's default (10) */
++	short physicsThreads;		/* 0 = one per processor core; results never depend on it */
++	short bnflag;				/* GAME_BN_*: features that are switched off */
++	float erp, erp2, cfm;		/* solver error reduction (joints, contacts) and constraint force mixing */
++	int pad6;
+ } GameData;
+ 
+ #define STEREO_NOSTEREO		1
+@@ -972,7 +980,17 @@ typedef struct GameData {
+ 
+ /* physicsEngine */
+ #define WOPHY_NONE		0
+-#define WOPHY_BULLET	5
++#define WOPHY_BULLET	5	/* Bullet as in Blender 2.79b (frozen legacy backend) */
++#define WOPHY_BULLET_NEXT	6	/* Bullet NEXT */
++
++/* GameData.solverType (same values as UPBGE) */
++#define GAME_SOLVER_SEQUENTIAL	0
++#define GAME_SOLVER_NNCG		1
++
++/* GameData.bnflag: Bullet NEXT features switched off (all on by default) */
++#define GAME_BN_NO_CCD				(1 << 0)
++#define GAME_BN_NO_ACTIVE_EDGES		(1 << 1)
++#define GAME_BN_NO_HULL_CLIPPING	(1 << 2)
+ 
+ /* obstacleSimulation */
+ #define OBSTSIMULATION_NONE		0
+diff --git a/source/blender/makesrna/intern/rna_scene.c b/source/blender/makesrna/intern/rna_scene.c
+index d70d388..a64725f 100644
+--- a/source/blender/makesrna/intern/rna_scene.c
++++ b/source/blender/makesrna/intern/rna_scene.c
+@@ -4822,7 +4822,15 @@ static void rna_def_scene_game_data(BlenderRNA *brna)
+ 
+ 	static EnumPropertyItem physics_engine_items[] = {
+ 		{WOPHY_NONE, "NONE", 0, "None", "Don't use a physics engine"},
+-		{WOPHY_BULLET, "BULLET", 0, "Bullet", "Use the Bullet physics engine"},
++		{WOPHY_BULLET, "BULLET", 0, "Bullet", "Use the Bullet physics engine (as in Blender 2.79b)"},
++		{WOPHY_BULLET_NEXT, "BULLET_NEXT", 0, "Bullet NEXT",
++		 "Use Bullet NEXT: multi-threaded, deterministic, without ghost bumps or tunnelling"},
++		{0, NULL, 0, NULL, NULL}
++	};
++
++	static EnumPropertyItem physics_solver_items[] = {
++		{GAME_SOLVER_SEQUENTIAL, "SOLVER_SEQUENTIAL", 0, "Sequential", "Sequential impulse solver, as in Blender 2.79b"},
++		{GAME_SOLVER_NNCG, "SOLVER_NNCG", 0, "NNCG", "Nonsmooth nonlinear conjugate gradient solver: stiffer stacks and chains"},
+ 		{0, NULL, 0, NULL, NULL}
+ 	};
+ 
+@@ -5091,6 +5099,73 @@ static void rna_def_scene_game_data(BlenderRNA *brna)
+ 	                         "threshold will deactivate (0.0 means no deactivation)");
+ 	RNA_def_property_update(prop, NC_SCENE, NULL);
+ 
++	/* Bullet NEXT settings (UPBGE names where UPBGE has them) */
++	prop = RNA_def_property(srna, "physics_solver", PROP_ENUM, PROP_NONE);
++	RNA_def_property_enum_sdna(prop, NULL, "solverType");
++	RNA_def_property_enum_items(prop, physics_solver_items);
++	RNA_def_property_ui_text(prop, "Physics Solver", "Constraint solver (Bullet NEXT)");
++	RNA_def_property_update(prop, NC_SCENE, NULL);
++
++	prop = RNA_def_property(srna, "physics_solver_iterations", PROP_INT, PROP_NONE);
++	RNA_def_property_int_sdna(prop, NULL, "solverIterations");
++	RNA_def_property_range(prop, 0, 1000);
++	RNA_def_property_ui_range(prop, 0, 100, 1, 1);
++	RNA_def_property_ui_text(prop, "Solver Iterations",
++	                         "Constraint solver iterations per physics step, more is stiffer and slower "
++	                         "(0 uses the default of 10; Bullet NEXT)");
++	RNA_def_property_update(prop, NC_SCENE, NULL);
++
++	prop = RNA_def_property(srna, "physics_threads", PROP_INT, PROP_NONE);
++	RNA_def_property_int_sdna(prop, NULL, "physicsThreads");
++	RNA_def_property_range(prop, 0, 64);
++	RNA_def_property_ui_range(prop, 0, 16, 1, 1);
++	RNA_def_property_ui_text(prop, "Physics Threads",
++	                         "Threads used for physics (0 uses one per processor core); "
++	                         "results are the same for any number (Bullet NEXT)");
++	RNA_def_property_update(prop, NC_SCENE, NULL);
++
++	prop = RNA_def_property(srna, "erp_parameter", PROP_FLOAT, PROP_NONE);
++	RNA_def_property_float_sdna(prop, NULL, "erp");
++	RNA_def_property_range(prop, 0.0, 1.0);
++	RNA_def_property_ui_text(prop, "Joint ERP",
++	                         "Error Reduction Parameter for joints: share of a joint's error fixed in the next step "
++	                         "(Bullet NEXT)");
++	RNA_def_property_update(prop, NC_SCENE, NULL);
++
++	prop = RNA_def_property(srna, "erp2_parameter", PROP_FLOAT, PROP_NONE);
++	RNA_def_property_float_sdna(prop, NULL, "erp2");
++	RNA_def_property_range(prop, 0.0, 1.0);
++	RNA_def_property_ui_text(prop, "Contact ERP",
++	                         "Error Reduction Parameter for contacts: how fast overlapping objects are pushed apart "
++	                         "(Bullet NEXT)");
++	RNA_def_property_update(prop, NC_SCENE, NULL);
++
++	prop = RNA_def_property(srna, "cfm_parameter", PROP_FLOAT, PROP_NONE);
++	RNA_def_property_float_sdna(prop, NULL, "cfm");
++	RNA_def_property_range(prop, 0.0, 10000.0);
++	RNA_def_property_ui_range(prop, 0.0, 100.0, 2, 3);
++	RNA_def_property_ui_text(prop, "CFM",
++	                         "Constraint Force Mixing: above zero makes joints and contacts softer (Bullet NEXT)");
++	RNA_def_property_update(prop, NC_SCENE, NULL);
++
++	prop = RNA_def_property(srna, "use_physics_ccd", PROP_BOOLEAN, PROP_NONE);
++	RNA_def_property_boolean_negative_sdna(prop, NULL, "bnflag", GAME_BN_NO_CCD);
++	RNA_def_property_ui_text(prop, "Continuous Collision",
++	                         "Fast objects are swept so they never pass through thin objects (Bullet NEXT)");
++	RNA_def_property_update(prop, NC_SCENE, NULL);
++
++	prop = RNA_def_property(srna, "use_physics_smooth_meshes", PROP_BOOLEAN, PROP_NONE);
++	RNA_def_property_boolean_negative_sdna(prop, NULL, "bnflag", GAME_BN_NO_ACTIVE_EDGES);
++	RNA_def_property_ui_text(prop, "Smooth Mesh Contacts",
++	                         "Objects slide over the inner edges of static meshes without bumps (Bullet NEXT)");
++	RNA_def_property_update(prop, NC_SCENE, NULL);
++
++	prop = RNA_def_property(srna, "use_physics_hull_clipping", PROP_BOOLEAN, PROP_NONE);
++	RNA_def_property_boolean_negative_sdna(prop, NULL, "bnflag", GAME_BN_NO_HULL_CLIPPING);
++	RNA_def_property_ui_text(prop, "Hull Clipping",
++	                         "Boxes and convex hulls get full contact faces instead of single points (Bullet NEXT)");
++	RNA_def_property_update(prop, NC_SCENE, NULL);
++
+ 	/* mode */
+ 	/* not used  *//* deprecated !!!!!!!!!!!!! */
+ 	prop = RNA_def_property(srna, "use_occlusion_culling", PROP_BOOLEAN, PROP_NONE);
+diff --git a/source/blenderplayer/CMakeLists.txt b/source/blenderplayer/CMakeLists.txt
+index d905c5e..36562b5 100644
+--- a/source/blenderplayer/CMakeLists.txt
++++ b/source/blenderplayer/CMakeLists.txt
+@@ -113,6 +113,7 @@ endif()
+ 		ge_converter 
+ 		ge_logic_ketsji 
+ 		ge_phys_bullet 
++		ge_phys_bullet_legacy
+ 		ge_phys_dummy
+ 		ge_logic 
+ 		ge_rasterizer 
+@@ -133,6 +134,8 @@ endif()
+ 		ge_logic_ngnetwork 
+ 		ge_logic_loopbacknetwork 
+ 		extern_bullet 
++		bn_bullet_next
++		bn_bullet_legacy
+ 		bf_intern_guardedalloc 
+ 		bf_intern_memutil 
+ 		bf_python_ext
+diff --git a/source/gameengine/CMakeLists.txt b/source/gameengine/CMakeLists.txt
+index 6252317..cb8e8f3 100644
+--- a/source/gameengine/CMakeLists.txt
++++ b/source/gameengine/CMakeLists.txt
+@@ -46,6 +46,9 @@ add_subdirectory(SceneGraph)
+ 
+ if(WITH_BULLET)
+ 	add_subdirectory(Physics/Bullet)
++	if(WITH_BULLET_NEXT)
++		add_subdirectory(Physics/BulletLegacy)
++	endif()
+ endif()
+ 
+ if(WITH_PYTHON)
+diff --git a/source/gameengine/Converter/BL_BlenderDataConversion.cpp b/source/gameengine/Converter/BL_BlenderDataConversion.cpp
+index 8b1dddb..b1d9113 100644
+--- a/source/gameengine/Converter/BL_BlenderDataConversion.cpp
++++ b/source/gameengine/Converter/BL_BlenderDataConversion.cpp
+@@ -164,10 +164,8 @@ extern Material defmaterial;	/* material.c */
+ #include "KX_SG_NodeRelationships.h"
+ #include "KX_SG_BoneParentNodeRelationship.h"
+ 
+-#ifdef WITH_BULLET
+-#include "CcdPhysicsEnvironment.h"
+-#include "CcdGraphicController.h"
+-#endif
++#include "PHY_IPhysicsEnvironment.h"
++#include "PHY_IGraphicController.h"
+ 
+ #include "KX_MotionState.h"
+ 
+@@ -1303,17 +1301,22 @@ static void BL_CreateGraphicObjectNew(KX_GameObject* gameobj,
+ #ifdef WITH_BULLET
+ 		case UseBullet:
+ 			{
+-				CcdPhysicsEnvironment* env = (CcdPhysicsEnvironment*)kxscene->GetPhysicsEnvironment();
++				/* Bullet NEXT (C1.11): the scene's Bullet backend (legacy or next) makes the controller. */
++				PHY_IPhysicsEnvironment *env = kxscene->GetPhysicsEnvironment();
+ 				assert(env);
+ 				PHY_IMotionState* motionstate = new KX_MotionState(gameobj->GetSGNode());
+-				CcdGraphicController* ctrl = new CcdGraphicController(env, motionstate);
++				PHY_IGraphicController *ctrl = env->CreateGraphicController(motionstate);
++				if (!ctrl) {
++					delete motionstate;
++					break;
++				}
+ 				gameobj->SetGraphicController(ctrl);
+ 				ctrl->SetNewClientInfo(gameobj->getClientInfo());
+ 				ctrl->SetLocalAabb(localAabbMin, localAabbMax);
+ 				if (isActive) {
+ 					// add first, this will create the proxy handle, only if the object is visible
+ 					if (gameobj->GetVisible())
+-						env->AddCcdGraphicController(ctrl);
++						ctrl->Activate(true);
+ 					// update the mesh if there is a deformer, this will also update the bounding box for modifiers
+ 					RAS_Deformer* deformer = gameobj->GetDeformer();
+ 					if (deformer)
+diff --git a/source/gameengine/Converter/KX_BlenderSceneConverter.cpp b/source/gameengine/Converter/KX_BlenderSceneConverter.cpp
+index 08b569f..199b91a 100644
+--- a/source/gameengine/Converter/KX_BlenderSceneConverter.cpp
++++ b/source/gameengine/Converter/KX_BlenderSceneConverter.cpp
+@@ -52,7 +52,7 @@
+ 
+ 
+ #ifdef WITH_BULLET
+-#include "CcdPhysicsEnvironment.h"
++#include "BN_PhysicsBackends.h"
+ #endif
+ 
+ #include "KX_LibLoadStatus.h"
+@@ -243,11 +243,14 @@ void KX_BlenderSceneConverter::ConvertScene(KX_Scene *destinationscene, RAS_IRas
+ 	switch (blenderscene->gm.physicsEngine) {
+ #ifdef WITH_BULLET
+ 	case WOPHY_BULLET:
++	case WOPHY_BULLET_NEXT:
+ 		{
+ 			SYS_SystemHandle syshandle = SYS_GetSystem(); /*unused*/
+ 			int visualizePhysics = SYS_GetCommandLineInt(syshandle, "show_physics", 0);
+ 
+-			phy_env = CcdPhysicsEnvironment::Create(blenderscene, visualizePhysics);
++			/* Bullet NEXT (C1.11): old files keep the frozen 2.79b Bullet; Bullet NEXT is chosen per scene. */
++			phy_env = BN_CreatePhysicsEnvironment(blenderscene, visualizePhysics,
++			                                      blenderscene->gm.physicsEngine == WOPHY_BULLET_NEXT);
+ 			physics_engine = UseBullet;
+ 			break;
+ 		}
+diff --git a/source/gameengine/Converter/KX_SoftBodyDeformer.cpp b/source/gameengine/Converter/KX_SoftBodyDeformer.cpp
+index 877aebf..d3bb93b 100644
+--- a/source/gameengine/Converter/KX_SoftBodyDeformer.cpp
++++ b/source/gameengine/Converter/KX_SoftBodyDeformer.cpp
+@@ -43,11 +43,8 @@
+ 
+ #ifdef WITH_BULLET
+ 
+-#include "CcdPhysicsEnvironment.h"
+-#include "CcdPhysicsController.h"
+-#include "BulletSoftBody/btSoftBody.h"
+-
+-#include "btBulletDynamicsCommon.h"
++#include "PHY_IPhysicsController.h"
++#include "MT_Point3.h"
+ 
+ void KX_SoftBodyDeformer::Relink(CTR_Map<class CTR_HashedPtr, void*>*map)
+ {
+@@ -64,12 +61,9 @@ void KX_SoftBodyDeformer::Relink(CTR_Map<class CTR_HashedPtr, void*>*map)
+ 
+ bool KX_SoftBodyDeformer::Apply(class RAS_IPolyMaterial *polymat)
+ {
+-	CcdPhysicsController* ctrl = (CcdPhysicsController*) m_gameobj->GetPhysicsController();
+-	if (!ctrl)
+-		return false;
+-
+-	btSoftBody* softBody= ctrl->GetSoftBody();
+-	if (!softBody)
++	/* Bullet NEXT (C1.11): through the PHY interface, so both Bullet backends work. */
++	PHY_IPhysicsController *ctrl = m_gameobj->GetPhysicsController();
++	if (!ctrl || !ctrl->IsSoftBody())
+ 		return false;
+ 
+ 	//printf("apply\n");
+@@ -94,25 +88,16 @@ bool KX_SoftBodyDeformer::Apply(class RAS_IPolyMaterial *polymat)
+ 	// for each array
+ 	for (slot->begin(it); !slot->end(it); slot->next(it)) 
+ 	{
+-		btSoftBody::tNodeArray&   nodes(softBody->m_nodes);
+-
+ 		int index = 0;
+ 		for (i=it.startvertex; i<it.endvertex; i++,index++) {
+ 			RAS_TexVert& v = it.vertex[i];
+-			btAssert(v.getSoftBodyIndex() >= 0);
+-
+-			MT_Point3 pt (
+-				nodes[v.getSoftBodyIndex()].m_x.getX(),
+-				nodes[v.getSoftBodyIndex()].m_x.getY(),
+-				nodes[v.getSoftBodyIndex()].m_x.getZ());
+-			v.SetXYZ(pt);
+-
+-			MT_Vector3 normal (
+-				nodes[v.getSoftBodyIndex()].m_n.getX(),
+-				nodes[v.getSoftBodyIndex()].m_n.getY(),
+-				nodes[v.getSoftBodyIndex()].m_n.getZ());
+-			v.SetNormal(normal);
++			MT_assert(v.getSoftBodyIndex() >= 0);
+ 
++			MT_Vector3 pt, normal;
++			if (!ctrl->GetSoftBodyNode(v.getSoftBodyIndex(), pt, normal))
++				continue;
++			v.SetXYZ(MT_Point3(pt[0], pt[1], pt[2]));
++			v.SetNormal(normal);
+ 		}
+ 	}
+ 	return true;
+diff --git a/source/gameengine/Ketsji/KX_PyConstraintBinding.cpp b/source/gameengine/Ketsji/KX_PyConstraintBinding.cpp
+index 81fe3be..d660ad2 100644
+--- a/source/gameengine/Ketsji/KX_PyConstraintBinding.cpp
++++ b/source/gameengine/Ketsji/KX_PyConstraintBinding.cpp
+@@ -125,6 +125,18 @@ PyDoc_STRVAR(gPySetSolverType__doc__,
+ "setSolverType(int solverType)\n"
+ "Very experimental, not recommended"
+ );
++PyDoc_STRVAR(gPySetERPNonContact__doc__,
++"setERPNonContact(float erp)\n"
++"Bullet NEXT: error reduction parameter for joints (0.0 - 1.0)"
++);
++PyDoc_STRVAR(gPySetERPContact__doc__,
++"setERPContact(float erp2)\n"
++"Bullet NEXT: error reduction parameter for contacts (0.0 - 1.0)"
++);
++PyDoc_STRVAR(gPySetCFM__doc__,
++"setCFM(float cfm)\n"
++"Bullet NEXT: constraint force mixing (0.0 - 10000.0)"
++);
+ 
+ PyDoc_STRVAR(gPyCreateConstraint__doc__,
+ "createConstraint(ob1,ob2,float restLength,float restitution,float damping)\n"
+@@ -376,6 +388,49 @@ static PyObject *gPySetSolverDamping(PyObject *self,
+ 	Py_RETURN_NONE;
+ }
+ 
++/* Bullet NEXT (C1.11): solver error correction, same names and ranges as UPBGE */
++static PyObject *gPySetERPNonContact(PyObject *self, PyObject *args, PyObject *kwds)
++{
++	float erp;
++	if (!PyArg_ParseTuple(args, "f:setERPNonContact", &erp))
++		return NULL;
++	if (erp < 0.0f || erp > 1.0f) {
++		PyErr_SetString(PyExc_ValueError, "setERPNonContact(erp): expected a float in range 0.0 - 1.0");
++		return NULL;
++	}
++	if (PHY_GetActiveEnvironment())
++		PHY_GetActiveEnvironment()->SetERPNonContact(erp);
++	Py_RETURN_NONE;
++}
++
++static PyObject *gPySetERPContact(PyObject *self, PyObject *args, PyObject *kwds)
++{
++	float erp2;
++	if (!PyArg_ParseTuple(args, "f:setERPContact", &erp2))
++		return NULL;
++	if (erp2 < 0.0f || erp2 > 1.0f) {
++		PyErr_SetString(PyExc_ValueError, "setERPContact(erp2): expected a float in range 0.0 - 1.0");
++		return NULL;
++	}
++	if (PHY_GetActiveEnvironment())
++		PHY_GetActiveEnvironment()->SetERPContact(erp2);
++	Py_RETURN_NONE;
++}
++
++static PyObject *gPySetCFM(PyObject *self, PyObject *args, PyObject *kwds)
++{
++	float cfm;
++	if (!PyArg_ParseTuple(args, "f:setCFM", &cfm))
++		return NULL;
++	if (cfm < 0.0f || cfm > 10000.0f) {
++		PyErr_SetString(PyExc_ValueError, "setCFM(cfm): expected a float in range 0.0 - 10000.0");
++		return NULL;
++	}
++	if (PHY_GetActiveEnvironment())
++		PHY_GetActiveEnvironment()->SetCFM(cfm);
++	Py_RETURN_NONE;
++}
++
+ static PyObject *gPySetLinearAirDamping(PyObject *self,
+                                         PyObject *args,
+                                         PyObject *kwds)
+@@ -646,6 +701,12 @@ static struct PyMethodDef physicsconstraints_methods[] = {
+ 	 METH_VARARGS, (const char *)gPySetUseEpa__doc__},
+ 	{"setSolverType",(PyCFunction) gPySetSolverType,
+ 	 METH_VARARGS, (const char *)gPySetSolverType__doc__},
++	{"setERPNonContact",(PyCFunction) gPySetERPNonContact,
++	 METH_VARARGS, (const char *)gPySetERPNonContact__doc__},
++	{"setERPContact",(PyCFunction) gPySetERPContact,
++	 METH_VARARGS, (const char *)gPySetERPContact__doc__},
++	{"setCFM",(PyCFunction) gPySetCFM,
++	 METH_VARARGS, (const char *)gPySetCFM__doc__},
+ 
+ 
+ 	{"createConstraint",(PyCFunction) gPyCreateConstraint,
+diff --git a/source/gameengine/Physics/Bullet/BN_PhysicsBackends.h b/source/gameengine/Physics/Bullet/BN_PhysicsBackends.h
+new file mode 100644
+index 0000000..2da86c6
+--- /dev/null
++++ b/source/gameengine/Physics/Bullet/BN_PhysicsBackends.h
+@@ -0,0 +1,55 @@
++/*
++ * ***** BEGIN GPL LICENSE BLOCK *****
++ *
++ * This program is free software; you can redistribute it and/or
++ * modify it under the terms of the GNU General Public License
++ * as published by the Free Software Foundation; either version 2
++ * of the License, or (at your option) any later version.
++ *
++ * This program is distributed in the hope that it will be useful,
++ * but WITHOUT ANY WARRANTY; without even the implied warranty of
++ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
++ * GNU General Public License for more details.
++ *
++ * You should have received a copy of the GNU General Public License
++ * along with this program; if not, write to the Free Software Foundation,
++ * Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301, USA.
++ *
++ * ***** END GPL LICENSE BLOCK *****
++ */
++
++/** \file BN_PhysicsBackends.h
++ *  \ingroup physbullet
++ *
++ * Bullet NEXT (C1.11): the game engine's Bullet physics module is compiled twice.
++ *  - ge_phys_bullet_legacy: the 2.79b code against the frozen, renamed Bullet 2.84 (old files).
++ *  - ge_phys_bullet:        the same code against Bullet NEXT (scenes set to "Bullet NEXT").
++ * The converter picks one per scene through this header and never sees Bullet types.
++ */
++
++#ifndef __BN_PHYSICSBACKENDS_H__
++#define __BN_PHYSICSBACKENDS_H__
++
++struct Scene;
++class PHY_IPhysicsEnvironment;
++
++PHY_IPhysicsEnvironment *BN_CreateLegacyEnvironment(struct Scene *blenderscene, bool visualizePhysics);
++
++#ifdef WITH_BULLET_NEXT
++PHY_IPhysicsEnvironment *BN_CreateNextEnvironment(struct Scene *blenderscene, bool visualizePhysics);
++#endif
++
++/* Without WITH_BULLET_NEXT (engine built with the old extern/bullet2) every scene uses 2.79b's Bullet. */
++inline PHY_IPhysicsEnvironment *BN_CreatePhysicsEnvironment(struct Scene *blenderscene, bool visualizePhysics,
++                                                            bool useBulletNext)
++{
++#ifdef WITH_BULLET_NEXT
++	if (useBulletNext)
++		return BN_CreateNextEnvironment(blenderscene, visualizePhysics);
++#else
++	(void)useBulletNext;
++#endif
++	return BN_CreateLegacyEnvironment(blenderscene, visualizePhysics);
++}
++
++#endif  /* __BN_PHYSICSBACKENDS_H__ */
+diff --git a/source/gameengine/Physics/Bullet/BN_legacy_symbols.txt b/source/gameengine/Physics/Bullet/BN_legacy_symbols.txt
+new file mode 100644
+index 0000000..90fd2db
+--- /dev/null
++++ b/source/gameengine/Physics/Bullet/BN_legacy_symbols.txt
+@@ -0,0 +1,26 @@
++# Bullet NEXT (C1.11): names this module defines, renamed with "btl_" in the copy that is built
++# against the frozen legacy Bullet (ge_phys_bullet_legacy), so both copies link into one program.
++# Bullet's own names (bt*, gim_*) are renamed by Bullet NEXT's rename tool already.
++BlenderBulletCharacterController
++BlenderBulletMotionState
++BlenderDebugDraw
++BlenderVehicleRaycaster
++CcdConstructionInfo
++CcdGraphicController
++CcdOverlapFilterCallBack
++CcdPhysicsController
++CcdPhysicsEnvironment
++CcdShapeConstructionInfo
++CleanPairCallback
++ClosestRayResultCallbackNotMe
++DbvtCullingCallback
++DefaultMotionState
++FilterClosestRayResultCallback
++OcclusionBuffer
++QueryOCL
++UVco
++WrapperVehicle
++WriteOCL
++findClosestNode
++gAngularSleepingTreshold
++gLinearSleepingTreshold
+diff --git a/source/gameengine/Physics/Bullet/CMakeLists.txt b/source/gameengine/Physics/Bullet/CMakeLists.txt
+index 8b00f1b..efcbad9 100644
+--- a/source/gameengine/Physics/Bullet/CMakeLists.txt
++++ b/source/gameengine/Physics/Bullet/CMakeLists.txt
+@@ -56,6 +56,7 @@ set(SRC
+ 	CcdPhysicsController.cpp
+ 	CcdGraphicController.cpp
+ 
++	BN_PhysicsBackends.h
+ 	CcdGraphicController.h
+ 	CcdPhysicsController.h
+ 	CcdPhysicsEnvironment.h
+@@ -70,4 +71,14 @@ endif()
+ 
+ add_definitions(${GL_DEFINITIONS})
+ 
++if(WITH_BULLET_NEXT)
++	# Bullet NEXT (C1.11): this copy runs scenes set to "Bullet NEXT" (threaded, F1 features).
++	# The frozen 2.79b copy for old files is built from renamed sources in ../BulletLegacy.
++	add_definitions(-DBN_NEXT_BACKEND -DBT_THREADSAFE=1)
++endif()
++
+ blender_add_lib(ge_phys_bullet "${SRC}" "${INC}" "${INC_SYS}")
++
++if(WITH_BULLET_NEXT)
++	target_link_libraries(ge_phys_bullet bn_bullet_next)
++endif()
+diff --git a/source/gameengine/Physics/Bullet/CcdPhysicsController.cpp b/source/gameengine/Physics/Bullet/CcdPhysicsController.cpp
+index c79e1c2..e0c738e 100644
+--- a/source/gameengine/Physics/Bullet/CcdPhysicsController.cpp
++++ b/source/gameengine/Physics/Bullet/CcdPhysicsController.cpp
+@@ -40,6 +40,9 @@ subject to the following restrictions:
+ #include "BulletCollision/Gimpact/btGImpactShape.h"
+ 
+ #include "BulletSoftBody/btSoftRigidDynamicsWorld.h"
++#ifdef BN_NEXT_BACKEND
++#include "BulletSoftBody/btSoftRigidDynamicsWorldMt.h"
++#endif
+ 
+ #include "DNA_mesh_types.h"
+ #include "DNA_meshdata_types.h"
+@@ -65,7 +68,11 @@ float gLinearSleepingTreshold;
+ float gAngularSleepingTreshold;
+ 
+ BlenderBulletCharacterController::BlenderBulletCharacterController(btMotionState *motionState, btPairCachingGhostObject *ghost, btConvexShape* shape, float stepHeight)
++#if BT_BULLET_VERSION >= 300
++	: btKinematicCharacterController(ghost,shape,stepHeight,btVector3(0.0f, 0.0f, 1.0f)),  /* Z up */
++#else
+ 	: btKinematicCharacterController(ghost,shape,stepHeight,2),
++#endif
+ 		m_motionState(motionState),
+ 		m_jumps(0),
+ 		m_maxJumps(1)
+@@ -253,6 +260,22 @@ btSoftBody* CcdPhysicsController::GetSoftBody()
+ {
+ 	return btSoftBody::upcast(m_object);
+ }
++
++bool CcdPhysicsController::IsSoftBody() const
++{
++	return btSoftBody::upcast(m_object) != NULL;
++}
++
++bool CcdPhysicsController::GetSoftBodyNode(int index, MT_Vector3 &position, MT_Vector3 &normal) const
++{
++	const btSoftBody *softBody = btSoftBody::upcast(m_object);
++	if (!softBody || index < 0 || index >= softBody->m_nodes.size())
++		return false;
++	const btSoftBody::Node &node = softBody->m_nodes[index];
++	position.setValue(node.m_x.getX(), node.m_x.getY(), node.m_x.getZ());
++	normal.setValue(node.m_n.getX(), node.m_n.getY(), node.m_n.getZ());
++	return true;
++}
+ btKinematicCharacterController* CcdPhysicsController::GetCharacterController()
+ {
+ 	return m_characterController;
+@@ -651,7 +674,7 @@ bool CcdPhysicsController::ReplaceControllerShape(btCollisionShape *newShape)
+ 
+ 	btSoftBody *softBody = GetSoftBody();
+ 	if (softBody) {
+-		btSoftRigidDynamicsWorld *world = GetPhysicsEnvironment()->GetDynamicsWorld();
++		BN_SoftRigidWorld *world = GetPhysicsEnvironment()->GetDynamicsWorld();
+ 		// remove the old softBody
+ 		world->removeSoftBody(softBody);
+ 
+@@ -1068,7 +1091,7 @@ void CcdPhysicsController::RefreshCollisions()
+ 	if (!GetPhysicsEnvironment()->IsActiveCcdPhysicsController(this))
+ 		return;
+ 
+-	btSoftRigidDynamicsWorld *dw = GetPhysicsEnvironment()->GetDynamicsWorld();
++	BN_SoftRigidWorld *dw = GetPhysicsEnvironment()->GetDynamicsWorld();
+ 	btBroadphaseProxy *proxy = m_object->getBroadphaseHandle();
+ 	btDispatcher *dispatcher = dw->getDispatcher();
+ 	btOverlappingPairCache *pairCache = dw->getPairCache();
+diff --git a/source/gameengine/Physics/Bullet/CcdPhysicsController.h b/source/gameengine/Physics/Bullet/CcdPhysicsController.h
+index 831e734..3e2cda0 100644
+--- a/source/gameengine/Physics/Bullet/CcdPhysicsController.h
++++ b/source/gameengine/Physics/Bullet/CcdPhysicsController.h
+@@ -431,8 +431,14 @@ public:
+ 	// PHY_ICharacter interface
+ 	virtual void Jump()	{ jump(); }
+ 	virtual bool OnGround() { return onGround(); }
++#if BT_BULLET_VERSION >= 300
++	/* Bullet 3: gravity is a vector; BGE's character falls along -Z with this magnitude */
++	virtual float GetGravity() { return getGravity().length(); }
++	virtual void SetGravity(float gravity) { setGravity(btVector3(0.0f, 0.0f, -gravity)); }
++#else
+ 	virtual float GetGravity() { return getGravity(); }
+ 	virtual void SetGravity(float gravity) { setGravity(gravity); }
++#endif
+ 	virtual unsigned char GetMaxJumps() { return getMaxJumps(); }
+ 	virtual void SetMaxJumps(unsigned char maxJumps) { setMaxJumps(maxJumps); }
+ 	virtual unsigned char GetJumpCount() { return getJumpCount(); }
+@@ -786,6 +792,10 @@ protected:
+ 			return GetConstructionInfo().m_shapeInfo->m_shapeType == PHY_SHAPE_COMPOUND;
+ 		}
+ 
++		/* Bullet NEXT (C1.11): soft-body nodes for the render-mesh deformer */
++		virtual bool IsSoftBody() const;
++		virtual bool GetSoftBodyNode(int index, MT_Vector3 &position, MT_Vector3 &normal) const;
++
+ 		virtual bool ReinstancePhysicsShape(KX_GameObject *from_gameobj, RAS_MeshObject* from_meshobj);
+ 
+ 		/* Method to replicate rigid body joint contraints for group instances. */
+diff --git a/source/gameengine/Physics/Bullet/CcdPhysicsEnvironment.cpp b/source/gameengine/Physics/Bullet/CcdPhysicsEnvironment.cpp
+index 72c9666..29533bc 100644
+--- a/source/gameengine/Physics/Bullet/CcdPhysicsEnvironment.cpp
++++ b/source/gameengine/Physics/Bullet/CcdPhysicsEnvironment.cpp
+@@ -33,6 +33,19 @@ subject to the following restrictions:
+ #include "BulletCollision/Gimpact/btGImpactCollisionAlgorithm.h"
+ #include "BulletCollision/NarrowPhaseCollision/btRaycastCallback.h"
+ 
++#ifdef BN_NEXT_BACKEND
++/* Bullet NEXT (C1.11): threaded world and the F1 collision features */
++#include "BulletDynamics/Dynamics/btNextFeatures.h"
++#include "BulletDynamics/Dynamics/btDiscreteDynamicsWorldMt.h"
++#include "BulletDynamics/ConstraintSolver/btSequentialImpulseConstraintSolverMt.h"
++#include "BulletDynamics/ConstraintSolver/btNNCGConstraintSolver.h"
++#include "BulletCollision/CollisionDispatch/btCollisionDispatcherMt.h"
++#include "BulletSoftBody/btSoftRigidDynamicsWorldMt.h"
++#include "LinearMath/btThreads.h"
++#endif
++#include "BN_PhysicsBackends.h"
++#include "CcdGraphicController.h"
++
+ //profiling/timings
+ #include "LinearMath/btQuickprof.h"
+ 
+@@ -401,7 +414,26 @@ static void DrawAabb(btIDebugDraw* debugDrawer,const btVector3& from,const btVec
+ 
+ 
+ 
+-CcdPhysicsEnvironment::CcdPhysicsEnvironment(bool useDbvtCulling,btDispatcher* dispatcher,btOverlappingPairCache* pairCache)
++#ifdef BN_NEXT_BACKEND
++/* One task scheduler for the whole game (Bullet's own threads, no OpenMP/TBB). Results are the same
++ * for any thread count, so the count of the last scene created simply wins. */
++static void BN_SetupThreads(int numThreads)
++{
++	static btITaskScheduler *scheduler = NULL;
++	if (!scheduler) {
++		scheduler = btCreateDefaultTaskScheduler();
++		if (!scheduler)
++			scheduler = btGetSequentialTaskScheduler();
++		btSetTaskScheduler(scheduler);
++	}
++	int maxThreads = scheduler->getMaxNumThreads();
++	if (numThreads <= 0)
++		numThreads = maxThreads;
++	scheduler->setNumThreads(btMax(1, btMin(numThreads, maxThreads)));
++}
++#endif
++
++CcdPhysicsEnvironment::CcdPhysicsEnvironment(bool useDbvtCulling,btDispatcher* dispatcher,btOverlappingPairCache* pairCache,int numThreads)
+ :m_cullingCache(NULL),
+ m_cullingTree(NULL),
+ m_numIterations(10),
+@@ -421,6 +453,14 @@ m_ghostPairCallback(NULL),
+ m_ownDispatcher(NULL),
+ m_scalingPropagated(false)
+ {
++#ifdef BN_NEXT_BACKEND
++	m_bnSolverPool = NULL;
++	m_bnFlag = 0;
++	m_bnLinearAirDamping = 0.0f;
++	BN_SetupThreads(numThreads);
++#else
++	(void)numThreads;
++#endif
+ 
+ 	for (int i=0;i<PHY_NUM_RESPONSE;i++)
+ 	{
+@@ -433,7 +473,11 @@ m_scalingPropagated(false)
+ 
+ 	if (!dispatcher)
+ 	{
++#ifdef BN_NEXT_BACKEND
++		btCollisionDispatcher* disp = new btCollisionDispatcherMt(m_collisionConfiguration, 40);
++#else
+ 		btCollisionDispatcher* disp = new btCollisionDispatcher(m_collisionConfiguration);
++#endif
+ 		dispatcher = disp;
+ 		btGImpactCollisionAlgorithm::registerAlgorithm(disp);
+ 		m_ownDispatcher = dispatcher;
+@@ -453,9 +497,19 @@ m_scalingPropagated(false)
+ 	m_broadphase->getOverlappingPairCache()->setOverlapFilterCallback(m_filterCallback);
+ 	m_broadphase->getOverlappingPairCache()->setInternalGhostPairCallback(m_ghostPairCallback);
+ 
++#ifdef BN_NEXT_BACKEND
++	/* Bullet NEXT: always the threaded world, even on one thread, so results never depend on the
++	 * thread count. Deterministic pair order, SAT for triangles, CCD, and 2.79b's linked-body rule. */
++	m_solverType = 1;
++	BN_CreateSolvers(m_solverType);
++	m_dynamicsWorld = new btSoftRigidDynamicsWorldMt(dispatcher, m_broadphase, m_bnSolverPool, m_solver, m_collisionConfiguration);
++	btNextConfigureWorld(m_dynamicsWorld);
++	btNextSetLinkedCollisionWhileEnabled(true);
++#else
+ 	SetSolverType(1);//issues with quickstep and memory allocations
+ //	m_dynamicsWorld = new btDiscreteDynamicsWorld(dispatcher,m_broadphase,m_solver,m_collisionConfiguration);
+ 	m_dynamicsWorld = new btSoftRigidDynamicsWorld(dispatcher,m_broadphase,m_solver,m_collisionConfiguration);
++#endif
+ 	m_dynamicsWorld->setInternalTickCallback(&CcdPhysicsEnvironment::StaticSimulationSubtickCallback, this);
+ 	//m_dynamicsWorld->getSolverInfo().m_linearSlop = 0.01f;
+ 	//m_dynamicsWorld->getSolverInfo().m_solverMode=	SOLVER_USE_WARMSTARTING +	SOLVER_USE_2_FRICTION_DIRECTIONS +	SOLVER_RANDMIZE_ORDER +	SOLVER_USE_FRICTION_WARMSTARTING;
+@@ -508,9 +562,51 @@ void	CcdPhysicsEnvironment::AddCcdPhysicsController(CcdPhysicsController* ctrl)
+ 		obj->setActivationState(ISLAND_SLEEPING);
+ 	}
+ 
++#ifdef BN_NEXT_BACKEND
++	BN_ConfigureBody(ctrl);
++#endif
++
+ 	assert(obj->getBroadphaseHandle());
+ }
+ 
++#ifdef BN_NEXT_BACKEND
++/* Bullet NEXT (C1.5, C1.6, C1.8): the F1 collision features, per body, as the scene allows. */
++void CcdPhysicsEnvironment::BN_ConfigureBody(CcdPhysicsController *ctrl)
++{
++	btCollisionObject *obj = ctrl->GetCollisionObject();
++	if (!obj || !obj->getCollisionShape())
++		return;
++	if (!(m_bnFlag & GAME_BN_NO_HULL_CLIPPING))
++		btNextEnableHullClipping(obj->getCollisionShape());
++	if (!(m_bnFlag & GAME_BN_NO_ACTIVE_EDGES) && obj->isStaticOrKinematicObject())
++		btNextEnableActiveEdges(obj);  /* triangle meshes and heightfields only */
++	btRigidBody *body = ctrl->GetRigidBody();
++	if (body && !body->isStaticOrKinematicObject()) {
++		if (m_bnFlag & GAME_BN_NO_CCD)
++			body->setCcdMotionThreshold(0.0f);
++		else
++			btNextConfigureCcd(body, true);
++	}
++}
++
++/* Bullet NEXT (C1.11): solverType 1 = sequential impulse (2.79b), 2 = NNCG. Large islands use the
++ * threaded sequential impulse solver; small islands run one solver per thread. */
++void CcdPhysicsEnvironment::BN_CreateSolvers(int solverType)
++{
++	const int numSolvers = btMax(1, btGetTaskScheduler()->getNumThreads());
++	btConstraintSolver **solvers = new btConstraintSolver*[numSolvers];
++	for (int i = 0; i < numSolvers; ++i) {
++		if (solverType == 2)
++			solvers[i] = new btNNCGConstraintSolver();
++		else
++			solvers[i] = new btSequentialImpulseConstraintSolver();
++	}
++	m_bnSolverPool = new btConstraintSolverPoolMt(solvers, numSolvers);
++	delete[] solvers;
++	m_solver = (solverType == 2) ? NULL : new btSequentialImpulseConstraintSolverMt();
++}
++#endif
++
+ void CcdPhysicsEnvironment::RemoveConstraint(btTypedConstraint *con)
+ {
+ 	btRigidBody &rbA = con->getRigidBodyA();
+@@ -655,8 +751,11 @@ void CcdPhysicsEnvironment::AddCcdGraphicController(CcdGraphicController* ctrl)
+ 				ctrl,
+ 				0,							// this object does not collision with anything
+ 				0,
+-				NULL,						// dispatcher => this parameter is not used
+-				0));
++				NULL						// dispatcher => this parameter is not used
++#if BT_BULLET_VERSION < 300
++				, 0							// multiSapProxy, removed in Bullet 3
++#endif
++				));
+ 
+ 		assert(ctrl->GetBroadphaseHandle());
+ 	}
+@@ -710,6 +809,17 @@ void CcdPhysicsEnvironment::SimulationSubtickCallback(btScalar timeStep)
+ {
+ 	std::set<CcdPhysicsController*>::iterator it;
+ 
++#ifdef BN_NEXT_BACKEND
++	if (m_bnLinearAirDamping > 0.0f) {
++		const btScalar keep = btMax(btScalar(0.0f), btScalar(1.0f) - m_bnLinearAirDamping * timeStep);
++		for (it = m_controllers.begin(); it != m_controllers.end(); it++) {
++			btRigidBody *body = (*it)->GetRigidBody();
++			if (body && body->isActive() && !body->isStaticOrKinematicObject())
++				body->setLinearVelocity(body->getLinearVelocity() * keep);
++		}
++	}
++#endif
++
+ 	for (it = m_controllers.begin(); it != m_controllers.end(); it++) {
+ 		(*it)->SimulationTick(timeStep);
+ 	}
+@@ -940,6 +1050,11 @@ void		CcdPhysicsEnvironment::SetDebugMode(int debugMode)
+ void		CcdPhysicsEnvironment::SetNumIterations(int numIter)
+ {
+ 	m_numIterations = numIter;
++#ifdef BN_NEXT_BACKEND
++	/* 2.79b stored the value but never used it; Bullet NEXT applies it. */
++	if (numIter > 0)
++		m_dynamicsWorld->getSolverInfo().m_numIterations = numIter;
++#endif
+ }
+ void		CcdPhysicsEnvironment::SetDeactivationTime(float dTime)
+ {
+@@ -975,6 +1090,15 @@ void		CcdPhysicsEnvironment::SetContactBreakingTreshold(float contactBreakingTre
+ void		CcdPhysicsEnvironment::SetCcdMode(int ccdMode)
+ {
+ 	m_ccdMode = ccdMode;
++#ifdef BN_NEXT_BACKEND
++	/* 2.79b ignored this call. Bullet NEXT: 0 turns automatic CCD off, any other value on. */
++	if (ccdMode)
++		m_bnFlag &= ~GAME_BN_NO_CCD;
++	else
++		m_bnFlag |= GAME_BN_NO_CCD;
++	for (std::set<CcdPhysicsController*>::iterator it = m_controllers.begin(); it != m_controllers.end(); it++)
++		BN_ConfigureBody(*it);
++#endif
+ }
+ 
+ 
+@@ -996,15 +1120,66 @@ void		CcdPhysicsEnvironment::SetSolverDamping(float damping)
+ void		CcdPhysicsEnvironment::SetLinearAirDamping(float damping)
+ {
+ 	//gLinearAirDamping = damping;
++#ifdef BN_NEXT_BACKEND
++	/* 2.79b ignored this call. Bullet NEXT: extra linear damping for every dynamic body (1/s). */
++	m_bnLinearAirDamping = btMax(damping, 0.0f);
++#endif
+ }
+ 
+ void		CcdPhysicsEnvironment::SetUseEpa(bool epa)
+ {
+ 	//gUseEpa = epa;
++	/* Bullet NEXT always uses EPA for penetration depth; the call is kept for old scripts. */
++}
++
++void		CcdPhysicsEnvironment::SetERPNonContact(float erp)
++{
++#ifdef BN_NEXT_BACKEND
++	m_dynamicsWorld->getSolverInfo().m_erp = erp;
++#else
++	(void)erp;  /* frozen 2.79b backend: unchanged */
++#endif
++}
++
++void		CcdPhysicsEnvironment::SetERPContact(float erp2)
++{
++#ifdef BN_NEXT_BACKEND
++	m_dynamicsWorld->getSolverInfo().m_erp2 = erp2;
++#else
++	(void)erp2;
++#endif
++}
++
++void		CcdPhysicsEnvironment::SetCFM(float cfm)
++{
++#ifdef BN_NEXT_BACKEND
++	m_dynamicsWorld->getSolverInfo().m_globalCfm = cfm;
++#else
++	(void)cfm;
++#endif
++}
++
++PHY_IGraphicController *CcdPhysicsEnvironment::CreateGraphicController(PHY_IMotionState *motionState)
++{
++	return new CcdGraphicController(this, motionState);
+ }
+ 
+ void		CcdPhysicsEnvironment::SetSolverType(int solverType)
+ {
++#ifdef BN_NEXT_BACKEND
++	/* Bullet NEXT: 1 = sequential impulse (the 2.79b solver), 2 = NNCG; other values are ignored. */
++	if ((solverType == 1 || solverType == 2) && solverType != m_solverType && m_dynamicsWorld) {
++		btConstraintSolverPoolMt *oldPool = m_bnSolverPool;
++		btConstraintSolver *oldSolver = m_solver;
++		BN_CreateSolvers(solverType);
++		m_dynamicsWorld->setConstraintSolver(m_bnSolverPool);
++		m_dynamicsWorld->setConstraintSolverMt(m_solver);
++		delete oldPool;
++		delete oldSolver;
++		m_solverType = solverType;
++	}
++	return;
++#endif
+ 
+ 	switch (solverType)
+ 	{
+@@ -2107,6 +2282,10 @@ CcdPhysicsEnvironment::~CcdPhysicsEnvironment()
+ 	if (NULL != m_solver)
+ 		delete m_solver;
+ 
++#ifdef BN_NEXT_BACKEND
++	delete m_bnSolverPool;
++#endif
++
+ 	if (NULL != m_debugDrawer)
+ 		delete m_debugDrawer;
+ 
+@@ -3170,7 +3349,21 @@ struct	BlenderDebugDraw : public btIDebugDraw
+ 
+ CcdPhysicsEnvironment *CcdPhysicsEnvironment::Create(Scene *blenderscene, bool visualizePhysics)
+ {
++#ifdef BN_NEXT_BACKEND
++	CcdPhysicsEnvironment* ccdPhysEnv = new CcdPhysicsEnvironment((blenderscene->gm.mode & WO_DBVT_CULLING) != 0,
++	                                                              NULL, NULL, blenderscene->gm.physicsThreads);
++	/* Bullet NEXT (C1.11): the scene's solver settings (UPBGE names and layout where they exist) */
++	const GameData &gm = blenderscene->gm;
++	ccdPhysEnv->m_bnFlag = gm.bnflag;
++	ccdPhysEnv->SetSolverType(gm.solverType == GAME_SOLVER_NNCG ? 2 : 1);
++	if (gm.solverIterations > 0)
++		ccdPhysEnv->SetNumIterations(gm.solverIterations);
++	ccdPhysEnv->SetERPNonContact(gm.erp);
++	ccdPhysEnv->SetERPContact(gm.erp2);
++	ccdPhysEnv->SetCFM(gm.cfm);
++#else
+ 	CcdPhysicsEnvironment* ccdPhysEnv = new CcdPhysicsEnvironment((blenderscene->gm.mode & WO_DBVT_CULLING) != 0);
++#endif
+ 	ccdPhysEnv->SetDebugDrawer(new BlenderDebugDraw());
+ 	ccdPhysEnv->SetDeactivationLinearTreshold(blenderscene->gm.lineardeactthreshold);
+ 	ccdPhysEnv->SetDeactivationAngularTreshold(blenderscene->gm.angulardeactthreshold);
+@@ -3793,3 +3986,13 @@ void CcdPhysicsEnvironment::SetupObjectConstraints(KX_GameObject *obj_src, KX_Ga
+ 	}
+ 
+ }
++
++/* Bullet NEXT (C1.11): the converter's entry point for this copy of the module. */
++#ifdef BN_NEXT_BACKEND
++PHY_IPhysicsEnvironment *BN_CreateNextEnvironment(struct Scene *blenderscene, bool visualizePhysics)
++#else
++PHY_IPhysicsEnvironment *BN_CreateLegacyEnvironment(struct Scene *blenderscene, bool visualizePhysics)
++#endif
++{
++	return CcdPhysicsEnvironment::Create(blenderscene, visualizePhysics);
++}
+diff --git a/source/gameengine/Physics/Bullet/CcdPhysicsEnvironment.h b/source/gameengine/Physics/Bullet/CcdPhysicsEnvironment.h
+index a64d2c8..415aa81 100644
+--- a/source/gameengine/Physics/Bullet/CcdPhysicsEnvironment.h
++++ b/source/gameengine/Physics/Bullet/CcdPhysicsEnvironment.h
+@@ -57,6 +57,18 @@ class PHY_IVehicle;
+ class CcdOverlapFilterCallBack;
+ class CcdShapeConstructionInfo;
+ 
++/* Bullet NEXT (C1.11): this module is compiled once per Bullet backend. BN_NEXT_BACKEND marks the
++ * Bullet NEXT copy (threaded world, F1 collision features, working 2.79b setters); without it this
++ * is the frozen 2.79b behaviour, built against the renamed legacy Bullet. */
++#ifdef BN_NEXT_BACKEND
++class btSoftRigidDynamicsWorldMt;
++class btConstraintSolverPoolMt;
++typedef btSoftRigidDynamicsWorldMt BN_SoftRigidWorld;
++#else
++class btSoftRigidDynamicsWorld;
++typedef btSoftRigidDynamicsWorld BN_SoftRigidWorld;
++#endif
++
+ /** CcdPhysicsEnvironment is an experimental mainloop for physics simulation using optional continuous collision detection.
+  * Physics Environment takes care of stepping the simulation and is a container for physics entities.
+  * It stores rigidbodies,constraints, materials etc.
+@@ -99,7 +111,8 @@ protected:
+ 	void	ProcessFhSprings(double curTime,float timeStep);
+ 
+ 	public:
+-		CcdPhysicsEnvironment(bool useDbvtCulling, btDispatcher* dispatcher=0, btOverlappingPairCache* pairCache=0);
++		/* numThreads: Bullet NEXT only, 0 = one per processor core (results do not depend on it) */
++		CcdPhysicsEnvironment(bool useDbvtCulling, btDispatcher* dispatcher=0, btOverlappingPairCache* pairCache=0, int numThreads=1);
+ 
+ 		virtual		~CcdPhysicsEnvironment();
+ 
+@@ -127,6 +140,10 @@ protected:
+ 		virtual void		SetSolverDamping(float damping);
+ 		virtual void		SetLinearAirDamping(float damping);
+ 		virtual void		SetUseEpa(bool epa);
++		virtual void		SetERPNonContact(float erp);
++		virtual void		SetERPContact(float erp2);
++		virtual void		SetCFM(float cfm);
++		virtual class PHY_IGraphicController *CreateGraphicController(class PHY_IMotionState *motionState);
+ 
+ 		virtual int			GetNumTimeSubSteps()
+ 		{
+@@ -277,7 +294,7 @@ protected:
+ 	
+ 		void	SyncMotionStates(float timeStep);
+ 
+-		class	btSoftRigidDynamicsWorld*	GetDynamicsWorld()
++		BN_SoftRigidWorld*	GetDynamicsWorld()
+ 		{
+ 			return m_dynamicsWorld;
+ 		}
+@@ -320,10 +337,19 @@ protected:
+ 		//and not afterwards (breaks the collision system for radar/near sensor)
+ 		//Ideally we would like to have access to this function from the btDynamicsWorld interface
+ 		//class	btDynamicsWorld*	m_dynamicsWorld;
+-		class	btSoftRigidDynamicsWorld*	m_dynamicsWorld;
++		BN_SoftRigidWorld*	m_dynamicsWorld;
+ 		
+ 		class btConstraintSolver*	m_solver;
+ 
++#ifdef BN_NEXT_BACKEND
++		/* Bullet NEXT: per-thread solvers for small islands (m_solver takes the large ones) */
++		btConstraintSolverPoolMt*	m_bnSolverPool;
++		int		m_bnFlag;
++		float	m_bnLinearAirDamping;
++		void	BN_ConfigureBody(CcdPhysicsController *ctrl);
++		void	BN_CreateSolvers(int solverType);
++#endif
++
+ 		class btOverlappingPairCache* m_ownPairCache;
+ 
+ 		class CcdOverlapFilterCallBack* m_filterCallback;
+diff --git a/source/gameengine/Physics/BulletLegacy/CMakeLists.txt b/source/gameengine/Physics/BulletLegacy/CMakeLists.txt
+new file mode 100644
+index 0000000..95d7165
+--- /dev/null
++++ b/source/gameengine/Physics/BulletLegacy/CMakeLists.txt
+@@ -0,0 +1,85 @@
++# ***** BEGIN GPL LICENSE BLOCK *****
++#
++# This program is free software; you can redistribute it and/or
++# modify it under the terms of the GNU General Public License
++# as published by the Free Software Foundation; either version 2
++# of the License, or (at your option) any later version.
++#
++# This program is distributed in the hope that it will be useful,
++# but WITHOUT ANY WARRANTY; without even the implied warranty of
++# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
++# GNU General Public License for more details.
++#
++# You should have received a copy of the GNU General Public License
++# along with this program; if not, write to the Free Software Foundation,
++# Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301, USA.
++#
++# ***** END GPL LICENSE BLOCK *****
++
++# Bullet NEXT (C1.11): the frozen 2.79b physics module for old files.
++# The sources of ../Bullet are copied with every Bullet name renamed (btX -> btlX, plus the names in
++# ../Bullet/BN_legacy_symbols.txt), then built against Bullet NEXT's frozen legacy Bullet 2.84.
++# This is its own directory so its include paths never mix with Bullet NEXT's.
++
++remove_strict_flags()
++
++# Python 3 runs the rename tool (Python3_EXECUTABLE, apart from Blender's own PYTHON_* variables)
++find_package(Python3 REQUIRED COMPONENTS Interpreter)
++
++set(BN_SRC_DIR ${CMAKE_CURRENT_SOURCE_DIR}/../Bullet)
++set(BN_GEN_DIR ${CMAKE_CURRENT_BINARY_DIR}/gen)
++set(BN_FILES
++	CcdPhysicsEnvironment.cpp
++	CcdPhysicsController.cpp
++	CcdGraphicController.cpp
++	CcdGraphicController.h
++	CcdPhysicsController.h
++	CcdPhysicsEnvironment.h
++)
++
++set(BN_IN "")
++set(SRC "")
++foreach(f ${BN_FILES})
++	list(APPEND BN_IN ${BN_SRC_DIR}/${f})
++	list(APPEND SRC ${BN_GEN_DIR}/${f})
++endforeach()
++
++add_custom_command(
++	OUTPUT ${SRC}
++	COMMAND ${Python3_EXECUTABLE} ${BN_RENAME_TOOL} --extra ${BN_SRC_DIR}/BN_legacy_symbols.txt files ${BN_GEN_DIR} ${BN_IN}
++	DEPENDS ${BN_IN} ${BN_SRC_DIR}/BN_legacy_symbols.txt ${BN_RENAME_TOOL}
++	COMMENT "Bullet NEXT: renaming the 2.79b physics module for the legacy Bullet"
++)
++
++set(INC
++	${BN_GEN_DIR}
++	../Bullet
++	../common
++	../../Converter
++	../../Expressions
++	../../GameLogic
++	../../Ketsji
++	../../Rasterizer
++	../../SceneGraph
++	../../../blender/blenkernel
++	../../../blender/blenlib
++	../../../blender/gpu
++	../../../blender/makesdna
++	../../../../intern/container
++	../../../../intern/guardedalloc
++	../../../../intern/glew-mx
++	../../../../intern/string
++)
++
++set(INC_SYS
++	../../../../intern/moto/include
++	${BN_LEGACY_INCLUDE_DIR}
++	${GLEW_INCLUDE_PATH}
++	${PYTHON_INCLUDE_DIRS}
++)
++
++add_definitions(-DWITH_BULLET)
++add_definitions(${GL_DEFINITIONS})
++
++blender_add_lib(ge_phys_bullet_legacy "${SRC}" "${INC}" "${INC_SYS}")
++target_link_libraries(ge_phys_bullet_legacy bn_bullet_legacy)
+diff --git a/source/gameengine/Physics/common/PHY_IPhysicsController.h b/source/gameengine/Physics/common/PHY_IPhysicsController.h
+index 4c6e8c7..d3eff6a 100644
+--- a/source/gameengine/Physics/common/PHY_IPhysicsController.h
++++ b/source/gameengine/Physics/common/PHY_IPhysicsController.h
+@@ -141,6 +141,11 @@ class PHY_IPhysicsController : public PHY_IController
+ 		virtual bool IsCompound() = 0;
+ 		virtual bool IsSuspended() const = 0;
+ 
++		/* Bullet NEXT (C1.11): soft-body nodes for the render-mesh deformer, so the deformer works
++		 * with either Bullet backend. False when this is not a soft body or the index is invalid. */
++		virtual bool IsSoftBody() const { return false; }
++		virtual bool GetSoftBodyNode(int index, MT_Vector3 &position, MT_Vector3 &normal) const { return false; }
++
+ 		virtual bool ReinstancePhysicsShape(KX_GameObject *from_gameobj, RAS_MeshObject* from_meshobj) = 0;
+ 
+ 		/* Method to replicate rigid body joint contraints for group instances. */
+diff --git a/source/gameengine/Physics/common/PHY_IPhysicsEnvironment.h b/source/gameengine/Physics/common/PHY_IPhysicsEnvironment.h
+index 72ec7b1..43695d2 100644
+--- a/source/gameengine/Physics/common/PHY_IPhysicsEnvironment.h
++++ b/source/gameengine/Physics/common/PHY_IPhysicsEnvironment.h
+@@ -158,6 +158,10 @@ class PHY_IPhysicsEnvironment
+ 		virtual void		SetLinearAirDamping(float damping) {}
+ 		/// penetrationdepth setting
+ 		virtual void		SetUseEpa(bool epa) {}
++		/* Bullet NEXT (C1.11): solver error reduction and constraint force mixing (UPBGE names) */
++		virtual void		SetERPNonContact(float erp) {}
++		virtual void		SetERPContact(float erp2) {}
++		virtual void		SetCFM(float cfm) {}
+ 
+ 		virtual	void		SetGravity(float x,float y,float z)=0;
+ 		virtual	void		GetGravity(MT_Vector3& grav) = 0;
+@@ -195,6 +199,8 @@ class PHY_IPhysicsEnvironment
+ 		//These two methods are *solely* used to create controllers for sensor! Don't use for anything else
+ 		virtual PHY_IPhysicsController*	CreateSphereController(float radius,const MT_Vector3& position) =0;
+ 		virtual PHY_IPhysicsController* CreateConeController(float coneradius,float coneheight)=0;
++		/* Bullet NEXT (C1.11): view-culling controller of this backend (NULL when it has none) */
++		virtual class PHY_IGraphicController *CreateGraphicController(class PHY_IMotionState *motionState) { return NULL; }
+ 		
+ 		virtual void	SetConstraintParam(int constraintId,int param,float value,float value1) = 0;
+ 		virtual float	GetConstraintParam(int constraintId,int param) = 0;
