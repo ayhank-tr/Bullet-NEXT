@@ -449,6 +449,42 @@ int btDiscreteDynamicsWorld::stepSimulation(btScalar timeStep, int maxSubSteps, 
 	return numSimulationSubSteps;
 }
 
+#include <algorithm>
+
+namespace
+{
+struct BnManifoldLess
+{
+	static void key(const btPersistentManifold* m, int& a, int& b)
+	{
+		a = m->getBody0() ? m->getBody0()->getWorldArrayIndex() : -1;
+		b = m->getBody1() ? m->getBody1()->getWorldArrayIndex() : -1;
+	}
+	bool operator()(const btPersistentManifold* x, const btPersistentManifold* y) const
+	{
+		int xa, xb, ya, yb;
+		key(x, xa, xb);
+		key(y, ya, yb);
+		if (xa != ya) return xa < ya;
+		return xb < yb;
+	}
+};
+}  // namespace
+
+void btDiscreteDynamicsWorld::bnSortManifolds()
+{
+	const int n = m_dispatcher1->getNumManifolds();
+	if (n > 1)
+	{
+		btPersistentManifold** arr = m_dispatcher1->getInternalManifoldPointer();
+		std::stable_sort(arr, arr + n, BnManifoldLess());
+		for (int i = 0; i < n; ++i)
+			arr[i]->m_index1a = i;  // index used by releaseManifold
+	}
+	if (m_predictiveManifolds.size() > 1)
+		std::stable_sort(&m_predictiveManifolds[0], &m_predictiveManifolds[0] + m_predictiveManifolds.size(), BnManifoldLess());
+}
+
 void btDiscreteDynamicsWorld::internalSingleStepSimulation(btScalar timeStep)
 {
 	BT_PROFILE("internalSingleStepSimulation");
@@ -471,6 +507,11 @@ void btDiscreteDynamicsWorld::internalSingleStepSimulation(btScalar timeStep)
 
 	///perform collision detection
 	performDiscreteCollisionDetection();
+
+	// Bullet NEXT (F1, C1.3/C1.9): canonical manifold order, so results do not depend on how
+	// many threads ran the narrowphase or in which order they finished.
+	if (dispatchInfo.m_deterministicOverlappingPairs)
+		bnSortManifolds();
 
 	calculateSimulationIslands();
 

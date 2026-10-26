@@ -86,6 +86,13 @@ protected:
 
 	virtual void internalSingleStepSimulation(btScalar timeStep);
 
+public:
+	/// Bullet NEXT (F1): sort contact manifolds into a canonical order (body index pairs).
+	void bnSortManifolds();
+
+
+protected:
+
 	void releasePredictiveContacts();
 	void createPredictiveContactsInternal(btRigidBody * *bodies, int numBodies, btScalar timeStep);  // can be called in parallel
 	virtual void createPredictiveContacts(btScalar timeStep);
