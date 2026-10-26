@@ -412,6 +412,26 @@ void btRigidBody::setCenterOfMassTransform(const btTransform& xform)
 	updateInertiaTensor();
 }
 
+bool gBnLinkedCollisionWhileEnabled = false;
+
+bool btRigidBody::checkCollideWithOverride(const btCollisionObject* co) const
+{
+	if (gBnLinkedCollisionWhileEnabled)
+	{
+		const btRigidBody* otherRb = btRigidBody::upcast(co);
+		if (otherRb)
+		{
+			for (int i = 0; i < m_constraintRefs.size(); ++i)
+			{
+				const btTypedConstraint* c = m_constraintRefs[i];
+				if (c->isEnabled() && (&c->getRigidBodyA() == otherRb || &c->getRigidBodyB() == otherRb))
+					return false;
+			}
+		}
+	}
+	return btCollisionObject::checkCollideWithOverride(co);
+}
+
 void btRigidBody::addConstraintRef(btTypedConstraint* c)
 {
 	///disable collision with the 'other' body
@@ -422,6 +442,11 @@ void btRigidBody::addConstraintRef(btTypedConstraint* c)
 	if (index == m_constraintRefs.size())
 	{
 		m_constraintRefs.push_back(c);
+		if (gBnLinkedCollisionWhileEnabled)
+		{
+			m_checkCollideWith = 1;  // checked per pair in checkCollideWithOverride
+			return;
+		}
 		btCollisionObject* colObjA = &c->getRigidBodyA();
 		btCollisionObject* colObjB = &c->getRigidBodyB();
 		if (colObjA == this)

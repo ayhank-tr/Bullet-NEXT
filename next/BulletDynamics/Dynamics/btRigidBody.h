@@ -56,6 +56,10 @@ enum btRigidBodyFlags
 ///- C) Kinematic objects, which are objects without mass, but the user can move them. There is one-way interaction, and Bullet calculates a velocity based on the timestep and previous and current world transform.
 ///Bullet automatically deactivates dynamic rigid bodies, when the velocity is below a threshold for a given time.
 ///Deactivated (sleeping) rigid bodies don't take any processing time, except a minor broadphase collision detection impact (to allow active objects to activate/wake up sleeping objects)
+// Bullet NEXT (F1, C1.1): when true, constraints do not permanently disable collision between
+// their bodies; collision is skipped only while the constraint is enabled (Blender 2.79b patch).
+extern bool gBnLinkedCollisionWhileEnabled;
+
 class btRigidBody : public btCollisionObject
 {
 	btMatrix3x3 m_invInertiaTensorWorld;
@@ -586,6 +590,10 @@ public:
 	{
 		return (getBroadphaseProxy() != 0);
 	}
+
+	// Bullet NEXT (F1, C1.1): Blender semantics - linked bodies ignore each other only while
+	// the constraint is enabled (active when gBnLinkedCollisionWhileEnabled is true).
+	virtual bool checkCollideWithOverride(const btCollisionObject* co) const;
 
 	void addConstraintRef(btTypedConstraint* c);
 	void removeConstraintRef(btTypedConstraint* c);

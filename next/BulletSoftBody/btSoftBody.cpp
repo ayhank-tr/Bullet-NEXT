@@ -170,6 +170,7 @@ btSoftBody::btSoftBody(btSoftBodyWorldInfo* worldInfo)
 void btSoftBody::initDefaults()
 {
 	m_internalType = CO_SOFT_BODY;
+	m_initialWorldTransform.setIdentity();
 	m_cfg.aeromodel = eAeroModel::V_Point;
 	m_cfg.kVCF = 1;
 	m_cfg.kDG = 0;
@@ -1102,6 +1103,7 @@ void btSoftBody::transformTo(const btTransform& trs)
 //
 void btSoftBody::transform(const btTransform& trs)
 {
+	m_initialWorldTransform = trs;
 	const btScalar margin = getCollisionShape()->getMargin();
 	ATTRIBUTE_ALIGNED16(btDbvtVolume)
 	vol;

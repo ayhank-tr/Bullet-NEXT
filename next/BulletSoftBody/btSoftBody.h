@@ -856,6 +856,9 @@ public:
 
 	btAlignedObjectArray<bool> m_clusterConnectivity;  //cluster connectivity, for self-collision
 
+	// Bullet NEXT (F1, C1.11): kept from Bullet 2.84 for Blender; the last transform() applied.
+	btTransform m_initialWorldTransform;
+
 	btVector3 m_windVelocity;
 
 	btScalar m_restLengthScale;
