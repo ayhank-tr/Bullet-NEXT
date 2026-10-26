@@ -1,0 +1,183 @@
+diff --git a/doc/python_api/rst/bge_types/bge.types.KX_GameObject.rst b/doc/python_api/rst/bge_types/bge.types.KX_GameObject.rst
+index c5729fd..60bb323 100644
+--- a/doc/python_api/rst/bge_types/bge.types.KX_GameObject.rst
++++ b/doc/python_api/rst/bge_types/bge.types.KX_GameObject.rst
+@@ -204,9 +204,13 @@ base class --- :class:`SCA_IObject`
+ 
+       :type: list of functions and/or methods
+ 
+-      Callbacks should either accept one argument `(object)`, or three
+-      arguments `(object, point, normal)`. For simplicity, per
+-      colliding object only the first collision point is reported.
++      Callbacks should either accept one argument `(object)`, three
++      arguments `(object, point, normal)`, or four arguments
++      `(object, point, normal, points)`. `point` and `normal` are the first
++      collision point; `points` holds every contact point of the pair (up to
++      four), each with the attributes `localPointA`, `localPointB`,
++      `worldPoint`, `normal`, `combinedFriction`, `combinedRollingFriction`,
++      `combinedRestitution` and `appliedImpulse` (the same names as UPBGE).
+ 
+       .. code-block:: python
+ 
+diff --git a/source/gameengine/Ketsji/KX_GameObject.cpp b/source/gameengine/Ketsji/KX_GameObject.cpp
+index 3244400..f35d942 100644
+--- a/source/gameengine/Ketsji/KX_GameObject.cpp
++++ b/source/gameengine/Ketsji/KX_GameObject.cpp
+@@ -1591,13 +1591,64 @@ void KX_GameObject::RegisterCollisionCallbacks()
+ 			pe->AddSensor(spc);
+ 	}
+ }
+-void KX_GameObject::RunCollisionCallbacks(KX_GameObject *collider, const MT_Vector3 &point, const MT_Vector3 &normal)
++#ifdef WITH_PYTHON
++/* Bullet NEXT (C1.12): one contact point as seen by a collision callback's owner. Attribute names
++ * follow UPBGE's KX_CollisionContactPoint so scripts work in both. */
++static PyStructSequence_Field kx_contact_point_fields[] = {
++	{(char *)"localPointA", (char *)"Contact point on the owner, in the owner's space"},
++	{(char *)"localPointB", (char *)"Contact point on the collider, in the collider's space"},
++	{(char *)"worldPoint", (char *)"Contact point on the collider, in world space"},
++	{(char *)"normal", (char *)"Contact normal in world space, from the owner towards the collider"},
++	{(char *)"combinedFriction", (char *)"Friction of the two materials combined"},
++	{(char *)"combinedRollingFriction", (char *)"Rolling friction of the two materials combined"},
++	{(char *)"combinedRestitution", (char *)"Restitution (bounce) of the two materials combined"},
++	{(char *)"appliedImpulse", (char *)"Impulse the solver applied at this point in the last step"},
++	{NULL, NULL}
++};
++
++static PyStructSequence_Desc kx_contact_point_desc = {
++	(char *)"bge.types.KX_CollisionContactPoint",
++	(char *)"A contact point passed to 4-argument collision callbacks",
++	kx_contact_point_fields,
++	8
++};
++
++static PyTypeObject *kx_contact_point_type = NULL;
++
++static PyObject *KX_CollisionContactPoints(const PHY_CollData *colldata, bool first)
++{
++	const int num = colldata ? colldata->m_numContacts : 0;
++	PyObject *list = PyTuple_New(num);
++	if (num == 0)
++		return list;
++	if (!kx_contact_point_type)
++		kx_contact_point_type = PyStructSequence_NewType(&kx_contact_point_desc);
++	for (int i = 0; i < num; i++) {
++		const PHY_ContactPoint &cp = colldata->m_contacts[i];
++		PyObject *item = PyStructSequence_New(kx_contact_point_type);
++		PyStructSequence_SET_ITEM(item, 0, PyObjectFrom(first ? cp.m_localPointA : cp.m_localPointB));
++		PyStructSequence_SET_ITEM(item, 1, PyObjectFrom(first ? cp.m_localPointB : cp.m_localPointA));
++		PyStructSequence_SET_ITEM(item, 2, PyObjectFrom(cp.m_worldPoint));
++		PyStructSequence_SET_ITEM(item, 3, PyObjectFrom(first ? -cp.m_normal : cp.m_normal));
++		PyStructSequence_SET_ITEM(item, 4, PyFloat_FromDouble(cp.m_combinedFriction));
++		PyStructSequence_SET_ITEM(item, 5, PyFloat_FromDouble(cp.m_combinedRollingFriction));
++		PyStructSequence_SET_ITEM(item, 6, PyFloat_FromDouble(cp.m_combinedRestitution));
++		PyStructSequence_SET_ITEM(item, 7, PyFloat_FromDouble(cp.m_appliedImpulse));
++		PyTuple_SET_ITEM(list, i, item);
++	}
++	return list;
++}
++#endif  /* WITH_PYTHON */
++
++void KX_GameObject::RunCollisionCallbacks(KX_GameObject *collider, const MT_Vector3 &point, const MT_Vector3 &normal,
++                                          const PHY_CollData *colldata, bool first)
+ {
+ #ifdef WITH_PYTHON
+ 	if (!m_collisionCallbacks || PyList_GET_SIZE(m_collisionCallbacks) == 0)
+ 		return;
+ 
+-	PyObject *args[] = {collider->GetProxy(), PyObjectFrom(point), PyObjectFrom(normal)};
++	PyObject *args[] = {collider->GetProxy(), PyObjectFrom(point), PyObjectFrom(normal),
++	                    KX_CollisionContactPoints(colldata, first)};
+ 	RunPythonCallBackList(m_collisionCallbacks, args, 1, ARRAY_SIZE(args));
+ 
+ 	for (unsigned int i = 0; i < ARRAY_SIZE(args); ++i) {
+diff --git a/source/gameengine/Ketsji/KX_GameObject.h b/source/gameengine/Ketsji/KX_GameObject.h
+index 9c582d3..924dc0d 100644
+--- a/source/gameengine/Ketsji/KX_GameObject.h
++++ b/source/gameengine/Ketsji/KX_GameObject.h
+@@ -953,7 +953,10 @@ public:
+ 
+ 	void RegisterCollisionCallbacks();
+ 	void UnregisterCollisionCallbacks();
+-	void RunCollisionCallbacks(KX_GameObject *collider, const MT_Vector3 &point, const MT_Vector3 &normal);
++	/* colldata/first (Bullet NEXT, C1.12): the pair's contact points and whether this object is the
++	 * pair's first object; callbacks that take a 4th argument receive the points (UPBGE layout). */
++	void RunCollisionCallbacks(KX_GameObject *collider, const MT_Vector3 &point, const MT_Vector3 &normal,
++	                           const struct PHY_CollData *colldata = NULL, bool first = true);
+ 	/**
+ 	 * Stop making progress
+ 	 */
+diff --git a/source/gameengine/Ketsji/KX_TouchEventManager.cpp b/source/gameengine/Ketsji/KX_TouchEventManager.cpp
+index 7f16765..5cd2120 100644
+--- a/source/gameengine/Ketsji/KX_TouchEventManager.cpp
++++ b/source/gameengine/Ketsji/KX_TouchEventManager.cpp
+@@ -210,8 +210,8 @@ void KX_TouchEventManager::NextFrame()
+ 			}
+ 			// Run python callbacks
+ 			PHY_CollData *colldata = cit->colldata;
+-			kxObj1->RunCollisionCallbacks(kxObj2, colldata->m_point1, colldata->m_normal);
+-			kxObj2->RunCollisionCallbacks(kxObj1, colldata->m_point2, -colldata->m_normal);
++			kxObj1->RunCollisionCallbacks(kxObj2, colldata->m_point1, colldata->m_normal, colldata, true);
++			kxObj2->RunCollisionCallbacks(kxObj1, colldata->m_point2, -colldata->m_normal, colldata, false);
+ 
+ 			delete cit->colldata;
+ 		}
+diff --git a/source/gameengine/Physics/Bullet/CcdPhysicsEnvironment.cpp b/source/gameengine/Physics/Bullet/CcdPhysicsEnvironment.cpp
+index 29533bc..187faf5 100644
+--- a/source/gameengine/Physics/Bullet/CcdPhysicsEnvironment.cpp
++++ b/source/gameengine/Physics/Bullet/CcdPhysicsEnvironment.cpp
+@@ -2602,6 +2602,22 @@ void	CcdPhysicsEnvironment::CallbackTriggers()
+ 			coll_data.m_point2 = MT_Vector3(point2.m_floats);
+ 			coll_data.m_normal = MT_Vector3(normal.m_floats);
+ 
++			/* Bullet NEXT (C1.12): every point of the manifold, in the pair's own order
++			 * (object1 = body 0), for 4-argument collision callbacks. */
++			coll_data.m_numContacts = btMin(numContacts, (int)PHY_MAX_CONTACT_POINTS);
++			for (int j = 0; j < coll_data.m_numContacts; j++) {
++				const btManifoldPoint &mp = manifold->getContactPoint(j);
++				PHY_ContactPoint &out = coll_data.m_contacts[j];
++				out.m_localPointA = MT_Vector3(mp.m_localPointA.m_floats);
++				out.m_localPointB = MT_Vector3(mp.m_localPointB.m_floats);
++				out.m_worldPoint = MT_Vector3(mp.m_positionWorldOnB.m_floats);
++				out.m_normal = MT_Vector3(mp.m_normalWorldOnB.m_floats);
++				out.m_combinedFriction = mp.m_combinedFriction;
++				out.m_combinedRollingFriction = mp.m_combinedRollingFriction;
++				out.m_combinedRestitution = mp.m_combinedRestitution;
++				out.m_appliedImpulse = mp.m_appliedImpulse;
++			}
++
+ 			m_triggerCallbacks[PHY_OBJECT_RESPONSE](m_triggerCallbacksUserPtrs[PHY_OBJECT_RESPONSE],
+ 				ctrl0, ctrl1, &coll_data);
+ 		}
+diff --git a/source/gameengine/Physics/common/PHY_DynamicTypes.h b/source/gameengine/Physics/common/PHY_DynamicTypes.h
+index d10f48a..d9d6060 100644
+--- a/source/gameengine/Physics/common/PHY_DynamicTypes.h
++++ b/source/gameengine/Physics/common/PHY_DynamicTypes.h
+@@ -36,10 +36,28 @@ enum
+ 	PHY_NUM_RESPONSE
+ };
+ 
++/* Bullet NEXT (C1.12): one contact point of a collision pair, in the pair's own order
++ * (A = object1, B = object2), so either object's view can be built from it. */
++typedef struct PHY_ContactPoint {
++	MT_Vector3 m_localPointA;          /* Point on object1, object1 space */
++	MT_Vector3 m_localPointB;          /* Point on object2, object2 space */
++	MT_Vector3 m_worldPoint;           /* Point on object2, world space */
++	MT_Vector3 m_normal;               /* World normal on object2, pointing towards object1 */
++	float m_combinedFriction;
++	float m_combinedRollingFriction;
++	float m_combinedRestitution;
++	float m_appliedImpulse;
++} PHY_ContactPoint;
++
++#define PHY_MAX_CONTACT_POINTS 4
++
+ typedef struct PHY_CollData {
+ 	MT_Vector3 m_point1;               /* Point in object1 in world coordinates */
+ 	MT_Vector3 m_point2;               /* Point in object2 in world coordinates */
+ 	MT_Vector3 m_normal;               /* point2 - point1 */
++	/* Bullet NEXT (C1.12): every contact point of the pair, for 4-argument collision callbacks */
++	int m_numContacts;
++	PHY_ContactPoint m_contacts[PHY_MAX_CONTACT_POINTS];
+ } PHY_CollData;
+ 
+ 
