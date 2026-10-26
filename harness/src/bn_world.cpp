@@ -440,7 +440,10 @@ btCollisionShape* makeMesh(const std::vector<btVector3>& verts, const std::vecto
   }
   btBvhTriangleMeshShape* bvh = new btBvhTriangleMeshShape(arr, true);
   bvh->setMargin(margin);
-  return new btScaledBvhTriangleMeshShape(bvh, scale);
+  // BGE sets the margin on the scaled wrapper too (CcdShapeConstructionInfo::CreateBulletShape).
+  btScaledBvhTriangleMeshShape* scaled = new btScaledBvhTriangleMeshShape(bvh, scale);
+  scaled->setMargin(margin);
+  return scaled;
 }
 
 void gridMesh(int nx, int ny, float size, std::vector<btVector3>& v, std::vector<int>& t) {
