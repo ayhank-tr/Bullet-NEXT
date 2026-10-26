@@ -19,6 +19,10 @@ class btDiscreteDynamicsWorld;
 /// disabled). Call before constraints are added.
 void btNextSetLinkedCollisionWhileEnabled(bool enable);
 
+/// C1.5 - Build polyhedral features so hull pairs use one-shot clipped manifolds. Recurses into
+/// compound shapes. Returns the number of shapes prepared.
+int btNextEnableHullClipping(btCollisionShape* shape);
+
 /// C1.3 - Deterministic pair and island ordering, plus SAT clipping for convex vs triangle.
 void btNextConfigureWorld(btDiscreteDynamicsWorld* world);
 

@@ -25,6 +25,28 @@ void btNextSetLinkedCollisionWhileEnabled(bool enable)
 {
 	gBnLinkedCollisionWhileEnabled = enable;
 }
+
+int btNextEnableHullClipping(btCollisionShape* shape)
+{
+	if (!shape)
+		return 0;
+	if (shape->isCompound())
+	{
+		btCompoundShape* c = static_cast<btCompoundShape*>(shape);
+		int n = 0;
+		for (int i = 0; i < c->getNumChildShapes(); ++i)
+			n += btNextEnableHullClipping(c->getChildShape(i));
+		return n;
+	}
+	if (shape->isPolyhedral())
+	{
+		btPolyhedralConvexShape* p = static_cast<btPolyhedralConvexShape*>(shape);
+		if (!p->getConvexPolyhedron())
+			p->initializePolyhedralFeatures();
+		return 1;
+	}
+	return 0;
+}
 void btNextConfigureWorld(btDiscreteDynamicsWorld* world)
 {
 	world->getDispatchInfo().m_deterministicOverlappingPairs = true;

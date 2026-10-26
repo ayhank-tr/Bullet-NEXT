@@ -256,7 +256,9 @@ void btConvexPolyhedron::initialize2()
 			const int e0 = (1 << LargestExtent) & 3;
 			const int e1 = (1 << e0) & 3;
 
-			for (int j = 0; j < 1024; j++)
+			// Bullet NEXT (F1): a zero step (flat faces, e.g. the per-triangle polyhedron built for
+			// SAT against meshes) cannot change the extents, so skip the 1,024 identical tests.
+			for (int j = 0; j < 1024 && Step != btScalar(0); j++)
 			{
 				const btScalar Saved0 = m_extents[e0];
 				const btScalar Saved1 = m_extents[e1];
