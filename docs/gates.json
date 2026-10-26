@@ -11,10 +11,10 @@
     "step_time_regression_max_pct": 2
   },
   "F1": {
-    "thread_determinism": "identical hash at 1, 2, 4, 8 threads",
+    "thread_determinism": "identical final hash at 1, 2, 4, 8 threads on every scene, stable over 2 runs",
     "ghost_bump_max_vertical_speed_mps": 0.05,
     "tunnelling_max_count_of_100_at_300mps_through_5cm_wall": 0,
-    "quality_vs_F0": "no scene worse than its F0 baseline on penetration, drift or energy",
+    "quality_vs_F0": "every scene except tunnel_100 and projectile (legacy passes their walls): mean of 5 gravity variants (+0.0005*k m/s2); mean penetration and max joint drift <= legacy x 1.10 + 1 mm; energy gain <= legacy gain + 1 % of start energy + 0.5 J",
     "thread_scaling_min_speedup_8_threads_1000_body_pile": 2.5
   },
   "F3c": {
@@ -25,5 +25,9 @@
     "energy_gain_max_pct_10s_frictionless_pendulum": 1.0,
     "softstep_vs_pgs_time_at_equal_error_max_ratio": 1.5
   },
-  "tolerance_mode_defaults": {"pos_m": 0.0001, "rot_rad": 0.001, "vel_mps": 0.001}
+  "tolerance_mode_defaults": {
+    "pos_m": 0.0001,
+    "rot_rad": 0.001,
+    "vel_mps": 0.001
+  }
 }

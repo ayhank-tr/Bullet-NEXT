@@ -1,0 +1,19 @@
+# Legacy backend, Linux GCC 13 (-O3, SSE2, no FMA): final hash per scene. Same as the unrenamed
+# Bullet 2.84 of Blender 2.79b. Regenerated in F1 after the harness mesh-margin fix (F0 harness correction).
+scene,final_hash
+stack_10,0d632c16a27c7592
+pyramid_10,6ae38838766a8725
+shape_zoo,e392420ac70d6a09
+joints_six,d750f2b18b38b139
+vehicle,932bbf3688941477
+character,4a8fb00d6d6c2c2e
+soft_body,112f09d7a6264b7e
+sensors_filters,b69253b6ebf4faaa
+projectile,4bb282a1011098ef
+tunnel_100,193149f8df3b9976
+mesh_slide,7bf8c78a0d1583f2
+body_types,8aa2369d1b3a1b36
+kinematic_switch,08356549baf9913e
+pile_1000,094f4b99356c0359
+joint_grid,0f65c8713d118ff1
+settings,976d7e31c32b751d
