@@ -222,6 +222,42 @@ void btDiscreteDynamicsWorldMt::predictUnconstraintMotion(btScalar timeStep)
 	}
 }
 
+struct BnUpdaterAabbs : public btIParallelForBody
+{
+	btCollisionObject** objects;
+	btVector3* aabbs;
+	const btCollisionWorld* world;
+	void forLoop(int iBegin, int iEnd) const BT_OVERRIDE
+	{
+		for (int i = iBegin; i < iEnd; ++i)
+			world->bnComputeSingleAabb(objects[i], aabbs[2 * i], aabbs[2 * i + 1]);
+	}
+};
+
+void btDiscreteDynamicsWorldMt::updateAabbs()
+{
+	BT_PROFILE("updateAabbs");
+	// Same objects, same values and same broadphase order as btCollisionWorld::updateAabbs.
+	m_bnAabbObjects.resize(0);
+	for (int i = 0; i < m_collisionObjects.size(); i++)
+	{
+		btCollisionObject* colObj = m_collisionObjects[i];
+		if (m_forceUpdateAllAabbs || colObj->isActive())
+			m_bnAabbObjects.push_back(colObj);
+	}
+	const int n = m_bnAabbObjects.size();
+	if (n == 0)
+		return;
+	m_bnAabbs.resize(2 * n);
+	BnUpdaterAabbs compute;
+	compute.objects = &m_bnAabbObjects[0];
+	compute.aabbs = &m_bnAabbs[0];
+	compute.world = this;
+	btParallelFor(0, n, 100, compute);
+	for (int i = 0; i < n; ++i)
+		bnApplySingleAabb(m_bnAabbObjects[i], m_bnAabbs[2 * i], m_bnAabbs[2 * i + 1]);
+}
+
 struct BnUpdaterPredictiveSweep : public btIParallelForBody
 {
 	btScalar timeStep;

@@ -140,6 +140,9 @@ public:
 	}
 
 	void updateSingleAabb(btCollisionObject* colObj);
+	// Bullet NEXT (C1.10): updateSingleAabb split into a parallel-safe compute and a serial apply.
+	void bnComputeSingleAabb(const btCollisionObject* colObj, btVector3& minAabb, btVector3& maxAabb) const;
+	void bnApplySingleAabb(btCollisionObject* colObj, const btVector3& minAabb, const btVector3& maxAabb);
 
 	virtual void updateAabbs();
 

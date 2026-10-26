@@ -153,6 +153,13 @@ void btCollisionWorld::addCollisionObject(btCollisionObject* collisionObject, in
 void btCollisionWorld::updateSingleAabb(btCollisionObject* colObj)
 {
 	btVector3 minAabb, maxAabb;
+	bnComputeSingleAabb(colObj, minAabb, maxAabb);
+	bnApplySingleAabb(colObj, minAabb, maxAabb);
+}
+
+// Bullet NEXT (F1, C1.10): the read-only half of updateSingleAabb, safe to run in parallel.
+void btCollisionWorld::bnComputeSingleAabb(const btCollisionObject* colObj, btVector3& minAabb, btVector3& maxAabb) const
+{
 	colObj->getCollisionShape()->getAabb(colObj->getWorldTransform(), minAabb, maxAabb);
 	//need to increase the aabb for contact thresholds
 	btVector3 contactThreshold(gContactBreakingThreshold, gContactBreakingThreshold, gContactBreakingThreshold);
@@ -168,7 +175,11 @@ void btCollisionWorld::updateSingleAabb(btCollisionObject* colObj)
 		minAabb.setMin(minAabb2);
 		maxAabb.setMax(maxAabb2);
 	}
+}
 
+// Bullet NEXT (F1, C1.10): the broadphase half; serial, in object order.
+void btCollisionWorld::bnApplySingleAabb(btCollisionObject* colObj, const btVector3& minAabb, const btVector3& maxAabb)
+{
 	btBroadphaseInterface* bp = (btBroadphaseInterface*)m_broadphasePairCache;
 
 	//moving objects should be moderately sized, probably something wrong if not

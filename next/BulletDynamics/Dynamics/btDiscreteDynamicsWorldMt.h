@@ -115,7 +115,13 @@ protected:
 	};
 	virtual void integrateTransforms(btScalar timeStep) BT_OVERRIDE;
 
+	// Bullet NEXT (F1, C1.10): AABBs computed in parallel, broadphase updated in object order.
+	btAlignedObjectArray<btVector3> m_bnAabbs;
+	btAlignedObjectArray<btCollisionObject*> m_bnAabbObjects;
+
 public:
+	virtual void updateAabbs() BT_OVERRIDE;
+
 	BT_DECLARE_ALIGNED_ALLOCATOR();
 
 	btDiscreteDynamicsWorldMt(btDispatcher * dispatcher,
