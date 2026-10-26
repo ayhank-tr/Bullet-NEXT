@@ -94,7 +94,7 @@ class World {
   BodyRec& body(int i) { return m_bodies[i]; }
   const std::vector<ContactEvent>& events() const { return m_events; }
   const std::vector<btTypedConstraint*>& constraints() const { return m_constraints; }
-  btSoftRigidDynamicsWorld* dyn() { return m_world; }
+  btDiscreteDynamicsWorld* dyn() { return m_world; }
   const Settings& settings() const { return m_settings; }
   int frame() const { return m_frame; }
   float gravityZ() const { return m_settings.gravityZ; }
@@ -112,8 +112,16 @@ class World {
   btDbvtBroadphase* m_broadphase = nullptr;
   btOverlapFilterCallback* m_filter = nullptr;
   btGhostPairCallback* m_ghostCb = nullptr;
-  btSequentialImpulseConstraintSolver* m_solver = nullptr;
-  btSoftRigidDynamicsWorld* m_world = nullptr;
+  btConstraintSolver* m_solver = nullptr;
+  btDiscreteDynamicsWorld* m_world = nullptr;
+  btSoftRigidDynamicsWorld* m_soft = nullptr;
+#if BN_NEXT_FEATURES
+  btSoftRigidDynamicsWorldMt* m_softMt = nullptr;
+  btConstraintSolverPoolMt* m_solverPool = nullptr;
+#endif
+  btSoftBodyWorldInfo& softInfo();
+  void addSoft(btSoftBody* b);
+  void removeSoft(btSoftBody* b);
   btRigidBody* m_fixed = nullptr;
   std::vector<BodyRec> m_bodies;
   std::vector<btTypedConstraint*> m_constraints;

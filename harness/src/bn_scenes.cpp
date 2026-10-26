@@ -253,6 +253,20 @@ void buildProjectile(World& w) {
   }
 }
 
+// --- 9b. tunnel_100: 100 small spheres at 300 m/s against a 5 cm wall ----------------------
+void buildTunnel(World& w) {
+  ground(w);
+  box(w, at(10, 0, 3), btVector3(0.025f, 4, 3), 0, kStatic);
+  for (int j = 0; j < 10; ++j)
+    for (int k = 0; k < 10; ++k) {
+      BodyOpts o;
+      o.kind = kRigid; o.mass = 0.05f; o.shape = makeSphere(0.1f);
+      o.xform = at(0.37f, -2.7f + 0.6f * j, 0.4f + 0.55f * k);  // steps never land inside the wall
+      int b = w.add(o);
+      w.body(b).rb->setLinearVelocity(btVector3(300, 0, 0));
+    }
+}
+
 // --- 10. mesh_slide: box sliding across internal triangle edges ---------------------------
 void buildMeshSlide(World& w) {
   meshGround(w, 40, 20.0f);
@@ -302,6 +316,56 @@ void driveKinematic(World& w, int f) {
   }
 }
 
+// --- 14. pile_1000: 1,000 mixed bodies in a walled pit (B1.1, batched solver) -----------------
+void buildPile(World& w) {
+  ground(w);
+  for (int side = 0; side < 4; ++side) {
+    const float x = side < 2 ? (side ? 6.0f : -6.0f) : 0, y = side < 2 ? 0 : (side == 3 ? 6.0f : -6.0f);
+    box(w, at(x, y, 4), side < 2 ? btVector3(0.25f, 6.25f, 4) : btVector3(6.25f, 0.25f, 4), 0, kStatic);
+  }
+  for (int i = 0; i < 1000; ++i) {
+    const int ix = i % 10, iy = (i / 10) % 10, iz = i / 100;
+    BodyOpts o;
+    o.kind = kRigid; o.mass = 1.0f; o.friction = 0.6f;
+    switch (i % 3) {
+      case 0: o.shape = makeBox(btVector3(0.25f, 0.25f, 0.25f)); break;
+      case 1: o.shape = makeSphere(0.25f); break;
+      default: o.shape = makeCapsuleZ(0.18f, 0.3f); break;
+    }
+    o.xform = atRot(-4.5f + ix * 1.0f + 0.05f * (iz % 2), -4.5f + iy * 1.0f, 1.0f + iz * 0.8f,
+                    btVector3(1, 0, 0), 0.3f * (i % 5));
+    w.add(o);
+  }
+}
+
+// --- 15. joint_grid: 20 x 20 net of point-to-point joints with a load (B1.1) ----------------
+void buildJointGrid(World& w) {
+  ground(w);
+  const int n = 20;
+  const float s = 0.5f;
+  std::vector<int> id(n * n);
+  for (int j = 0; j < n; ++j)
+    for (int i = 0; i < n; ++i) {
+      BodyOpts o;
+      o.kind = kRigid; o.mass = 0.2f; o.shape = makeSphere(0.12f);
+      o.xform = at(-0.5f * s * (n - 1) + i * s, -0.5f * s * (n - 1) + j * s, 8.0f);
+      id[j * n + i] = w.add(o);
+    }
+  const btVector3 half(0.5f * s, 0, 0), halfY(0, 0.5f * s, 0);
+  for (int j = 0; j < n; ++j)
+    for (int i = 0; i < n; ++i) {
+      const int b = id[j * n + i];
+      if (i + 1 < n) w.addPointToPoint(b, id[j * n + i + 1], half, -half);
+      if (j + 1 < n) w.addPointToPoint(b, id[(j + 1) * n + i], halfY, -halfY);
+    }
+  const int corners[4] = {0, n - 1, n * (n - 1), n * n - 1};
+  for (int c : corners) {
+    const btVector3 p = w.body(id[c]).rb->getCenterOfMassPosition();
+    w.addPointToPoint(id[c], -1, btVector3(0, 0, 0), p);
+  }
+  for (int k = 0; k < 4; ++k) box(w, at(-1.0f + k * 0.7f, 0.3f * k, 10.0f + k), btVector3(0.3f, 0.3f, 0.3f), 2.0f);
+}
+
 // --- 13. settings: solver setters, breaking threshold, deactivation, substeps -------------
 void buildSettings(World& w) { buildPyramid(w); }
 
@@ -333,9 +397,12 @@ const std::vector<Scene>& scenes() {
     list.push_back({"soft_body", "3,10,12", 300, d, buildSoft, 0});
     list.push_back({"sensors_filters", "3,5,6,12", 240, d, buildSensors, 0});
     list.push_back({"projectile", "4,12", 120, d, buildProjectile, 0});
+    list.push_back({"tunnel_100", "4,12", 60, d, buildTunnel, 0});
     list.push_back({"mesh_slide", "4,6,12", 240, d, buildMeshSlide, 0});
     list.push_back({"body_types", "3,11,12", 240, d, buildBodyTypes, 0});
     list.push_back({"kinematic_switch", "3,11,12", 240, d, buildKinematic, driveKinematic});
+    list.push_back({"pile_1000", "1,4,11,12", 300, d, buildPile, 0});
+    list.push_back({"joint_grid", "7,12", 300, d, buildJointGrid, 0});
     list.push_back({"settings", "1,2,11,12", 300, settingsVariant(), buildSettings, 0});
   }
   return list;

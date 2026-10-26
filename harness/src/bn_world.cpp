@@ -1,6 +1,8 @@
 // Bullet NEXT golden harness - BGE 2.79b world factory (commits C0.4, C0.5).
 #include "bn_world.h"
 
+#include <cstdlib>
+
 namespace bn {
 
 // ---------------------------------------------------------------------------------------
@@ -62,30 +64,93 @@ class BgeCharacter : public btKinematicCharacterController {
   int m_jumps = 0, m_maxJumps = 1;
 };
 
+// Gate switch (B1.2 feature cost): BN_FEATURES=<bitmask> keeps only the listed Bullet NEXT features
+// (1 world config, 2 linked collision, 4 hull clipping, 8 active edges, 16 CCD). Default: all on.
+static bool featureOn(int bit) {
+  static int mask = -2;
+  if (mask == -2) { const char* e = std::getenv("BN_FEATURES"); mask = e ? std::atoi(e) : -1; }
+  return (mask & bit) != 0;
+}
+
 static void tickCallback(btDynamicsWorld* w, btScalar dt) {
   static_cast<World*>(w->getWorldUserInfo())->tick(dt);
 }
 
 // ---------------------------------------------------------------------------------------
+#if BN_NEXT_FEATURES
+// Gate switch (T1.2, B1.1): BN_THREADS=<n> runs the threaded soft-rigid world on n threads, as
+// BGE NEXT does (C1.9). Unset or 0 keeps the classic single-threaded world.
+static int threadCount() {
+  const char* e = std::getenv("BN_THREADS");
+  return e ? std::atoi(e) : 0;
+}
+#endif
+
 World::World(const Settings& s) : m_settings(s) {
   m_config = new btSoftBodyRigidBodyCollisionConfiguration();
-  m_dispatcher = new btCollisionDispatcher(m_config);
-  btGImpactCollisionAlgorithm::registerAlgorithm(m_dispatcher);
   m_broadphase = new btDbvtBroadphase();
   m_filter = new BgeOverlapFilter(this);
   m_ghostCb = new btGhostPairCallback();
   m_broadphase->getOverlappingPairCache()->setOverlapFilterCallback(m_filter);
   m_broadphase->getOverlappingPairCache()->setInternalGhostPairCallback(m_ghostCb);
-  m_solver = new btSequentialImpulseConstraintSolver();  // SetSolverType(1)
-  m_world = new btSoftRigidDynamicsWorld(m_dispatcher, m_broadphase, m_solver, m_config);
+#if BN_NEXT_FEATURES
+  const int threads = threadCount();
+  if (threads > 0) {
+    static bool scheduler = false;
+    if (!scheduler) {
+      btITaskScheduler* ts = btCreateDefaultTaskScheduler();
+      ts->setNumThreads(threads);
+      btSetTaskScheduler(ts);
+      scheduler = true;
+    }
+    m_dispatcher = new btCollisionDispatcherMt(m_config, 40);
+    btGImpactCollisionAlgorithm::registerAlgorithm(m_dispatcher);
+    m_solverPool = new btConstraintSolverPoolMt(threads);
+    m_solver = new btSequentialImpulseConstraintSolverMt();
+    m_softMt = new btSoftRigidDynamicsWorldMt(m_dispatcher, m_broadphase, m_solverPool, m_solver, m_config);
+    m_world = m_softMt;
+  } else
+#endif
+  {
+    m_dispatcher = new btCollisionDispatcher(m_config);
+    btGImpactCollisionAlgorithm::registerAlgorithm(m_dispatcher);
+    m_solver = new btSequentialImpulseConstraintSolver();  // SetSolverType(1)
+    m_soft = new btSoftRigidDynamicsWorld(m_dispatcher, m_broadphase, m_solver, m_config);
+    m_world = m_soft;
+  }
   m_world->setInternalTickCallback(&tickCallback, this);
+#if BN_NEXT_FEATURES
+  if (featureOn(1)) btNextConfigureWorld(m_world);               // C1.3: ordered pairs, SAT for triangles
+  btNextSetLinkedCollisionWhileEnabled(featureOn(2));            // C1.1: Blender's linked-collision semantics
+#endif
   m_world->setGravity(btVector3(0, 0, s.gravityZ));
-  m_world->getWorldInfo().m_gravity = btVector3(0, 0, s.gravityZ);
+  softInfo().m_gravity = btVector3(0, 0, s.gravityZ);
   if (s.setSolverParams) {
     m_world->getSolverInfo().m_sor = s.sor;
     m_world->getSolverInfo().m_tau = s.tau;
     m_world->getSolverInfo().m_damping = s.damping;
   }
+}
+
+btSoftBodyWorldInfo& World::softInfo() {
+#if BN_NEXT_FEATURES
+  if (m_softMt) return m_softMt->getWorldInfo();
+#endif
+  return m_soft->getWorldInfo();
+}
+
+void World::addSoft(btSoftBody* b) {
+#if BN_NEXT_FEATURES
+  if (m_softMt) { m_softMt->addSoftBody(b); return; }
+#endif
+  m_soft->addSoftBody(b);
+}
+
+void World::removeSoft(btSoftBody* b) {
+#if BN_NEXT_FEATURES
+  if (m_softMt) { m_softMt->removeSoftBody(b); return; }
+#endif
+  m_soft->removeSoftBody(b);
 }
 
 World::~World() {
@@ -96,7 +161,7 @@ World::~World() {
   for (size_t i = 0; i < m_bodies.size(); ++i) {
     BodyRec& b = m_bodies[i];
     if (b.character) { m_world->removeAction(b.character); delete b.character; }
-    if (b.soft) m_world->removeSoftBody(b.soft);
+    if (b.soft) removeSoft(b.soft);
     else if (b.rb) { m_world->removeRigidBody(b.rb); delete b.rb->getMotionState(); }
     else if (b.obj) m_world->removeCollisionObject(b.obj);
     delete b.obj;
@@ -105,6 +170,9 @@ World::~World() {
   for (size_t i = 0; i < m_meshes.size(); ++i) delete m_meshes[i];
   delete m_fixed;
   delete m_world; delete m_solver; delete m_ghostCb; delete m_filter;
+#if BN_NEXT_FEATURES
+  delete m_solverPool;
+#endif
   delete m_broadphase; delete m_dispatcher; delete m_config;
 }
 
@@ -169,6 +237,11 @@ int World::add(const BodyOpts& o) {
   m_bodies.push_back(rec);
   m_world->addRigidBody(body, rec.group, rec.mask);
   if (body->isStaticOrKinematicObject()) body->setActivationState(ISLAND_SLEEPING);
+#if BN_NEXT_FEATURES
+  if (featureOn(4)) btNextEnableHullClipping(o.shape);          // C1.5
+  if (!dyn && featureOn(8)) btNextEnableActiveEdges(body);      // C1.6 (meshes and heightfields only)
+  if (dyn && featureOn(16)) btNextConfigureCcd(body, true);     // C1.7, C1.8
+#endif
   return index;
 }
 
@@ -203,7 +276,7 @@ int World::addSoftFromTriMesh(const std::vector<btVector3>& verts, const std::ve
     btVector3 p = o.xform * verts[i];
     flat.push_back(p.x()); flat.push_back(p.y()); flat.push_back(p.z());
   }
-  btSoftBody* psb = btSoftBodyHelpers::CreateFromTriMesh(m_world->getWorldInfo(), &flat[0], &tris[0],
+  btSoftBody* psb = btSoftBodyHelpers::CreateFromTriMesh(softInfo(), &flat[0], &tris[0],
                                                          (int)tris.size() / 3);
   psb->m_cfg.collisions = btSoftBody::fCollision::SDF_RS | btSoftBody::fCollision::VF_SS;
   psb->m_cfg.kDF = o.friction;
@@ -226,7 +299,7 @@ int World::addSoftFromTriMesh(const std::vector<btVector3>& verts, const std::ve
   const int index = (int)m_bodies.size();
   psb->setUserIndex(index);
   m_bodies.push_back(rec);
-  m_world->addSoftBody(psb);
+  addSoft(psb);
   return index;
 }
 

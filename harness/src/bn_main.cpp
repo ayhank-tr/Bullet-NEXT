@@ -1,8 +1,14 @@
 // Bullet NEXT golden harness - headless runner (commit C0.10).
 //   bn_harness_<backend> list
-//   bn_harness_<backend> run <scene|all> [--out DIR] [--repeat N]
+//   bn_harness_<backend> run <scene|all> [--out DIR] [--repeat N] [--variant K]
+// --variant K adds 0.0005*K m/s^2 to gravity: a tiny change that shows how chaotic a scene is (T1.5).
 // Writes per scene: <scene>.<backend>.bnr (recording), <scene>.<backend>.metrics.csv and one
 // summary line (scene, frames, final hash, hash stable over repeats, best ms) to summary.csv.
+#ifdef _WIN32
+#include <direct.h>
+#else
+#include <sys/stat.h>
+#endif
 #include "bn_record.h"
 #include "bn_scenes.h"
 
@@ -14,14 +20,28 @@ using namespace bn;
 
 namespace {
 
+// Creates the output folder (one level) so recordings are never dropped silently.
+void makeDir(const std::string& d) {
+#ifdef _WIN32
+  _mkdir(d.c_str());
+#else
+  mkdir(d.c_str(), 0755);
+#endif
+}
+
+
 struct RunResult {
   u64 finalHash = 0;
   double totalMs = 0;
   size_t frames = 0;
 };
 
+static int gVariant = 0;
+
 RunResult runOnce(const Scene& sc, const std::string& outDir, bool write) {
-  World w(sc.settings);
+  Settings settings = sc.settings;
+  settings.gravityZ += 0.0005f * float(gVariant);
+  World w(settings);
   sc.build(w);
   Recorder rec(sc.name, w);
   RunResult r;
@@ -55,7 +75,7 @@ int main(int argc, char** argv) {
     return 0;
   }
   if (std::strcmp(argv[1], "run") || argc < 3) {
-    std::fprintf(stderr, "usage: %s run <scene|all> [--out DIR] [--repeat N]\n", argv[0]);
+    std::fprintf(stderr, "usage: %s run <scene|all> [--out DIR] [--repeat N] [--variant K]\n", argv[0]);
     return 2;
   }
   std::string which = argv[2], outDir = ".";
@@ -63,8 +83,10 @@ int main(int argc, char** argv) {
   for (int i = 3; i + 1 < argc; i += 2) {
     if (!std::strcmp(argv[i], "--out")) outDir = argv[i + 1];
     else if (!std::strcmp(argv[i], "--repeat")) repeat = std::atoi(argv[i + 1]);
+    else if (!std::strcmp(argv[i], "--variant")) gVariant = std::atoi(argv[i + 1]);
   }
   if (repeat < 1) repeat = 1;
+  makeDir(outDir);
   std::string summary = outDir + "/summary." + BN_BACKEND_NAME + ".csv";
   FILE* s = std::fopen(summary.c_str(), "w");
   if (s) std::fprintf(s, "scene,backend,frames,final_hash,stable_over_%d_runs,best_ms\n", repeat);

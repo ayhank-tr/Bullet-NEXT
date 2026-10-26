@@ -14,6 +14,14 @@
 #include "BulletCollision/CollisionDispatch/btGhostObject.h"
 #include "BulletDynamics/Character/btKinematicCharacterController.h"
 #include "BulletCollision/NarrowPhaseCollision/btRaycastCallback.h"
+#if BN_NEXT_FEATURES
+#include "BulletDynamics/Dynamics/btNextFeatures.h"
+#include "BulletDynamics/Dynamics/btDiscreteDynamicsWorldMt.h"
+#include "BulletDynamics/ConstraintSolver/btSequentialImpulseConstraintSolverMt.h"
+#include "BulletCollision/CollisionDispatch/btCollisionDispatcherMt.h"
+#include "BulletSoftBody/btSoftRigidDynamicsWorldMt.h"
+#include "LinearMath/btThreads.h"
+#endif
 
 #include <cstdint>
 #include <cstdio>
