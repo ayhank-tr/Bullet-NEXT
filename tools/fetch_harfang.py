@@ -27,9 +27,15 @@ SUBMODULES = [  # pinned by the HARFANG commit itself
 ]
 
 
+# Keep HARFANG's own line endings on every system. Git for Windows turns LF into CRLF on checkout
+# by default (core.autocrlf=true), and the Lab patch then no longer fits. "-c" also reaches the
+# submodule clones, which git runs as child processes.
+GIT = ["git", "-c", "core.autocrlf=false", "-c", "core.eol=lf"]
+
+
 def git(args, cwd=None):
     print("git", " ".join(args), flush=True)
-    subprocess.run(["git"] + args, cwd=cwd, check=True)
+    subprocess.run(GIT + args, cwd=cwd, check=True)
 
 
 def checkout(url, pin, path):
