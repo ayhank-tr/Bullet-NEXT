@@ -38,8 +38,8 @@ jobs:
           -DHG_BUILD_GLTF_EXPORTER=OFF -DHG_BUILD_GLTF_IMPORTER=OFF
       - name: Build
         run: cmake --build build-hg --target tests harfang.so bnl_viewer assetc shaderc
-      - name: HARFANG unit tests
-        run: cd build-hg/harfang/tests && ./tests
+      - name: HARFANG unit tests (audio may fail; the runner has no sound device)
+        run: python3 bullet-next/tools/run_harfang_tests.py build-hg hg/harfang
       - name: Every scene in HARFANG (Python, headless)
         run: PYTHONPATH=build-hg/languages/hg_python BN_THREADS=0 python3 bullet-next/lab/harfang/lab_headless.py --engines legacy,next,nextf,jolt --out headless.json
       - name: Same results as the Lab
@@ -76,22 +76,27 @@ jobs:
       - uses: actions/checkout@v4
         with:
           path: bullet-next
+      # One Python for everything: the runner has several, and CMake would otherwise pick a newer one
+      # than the one pip installed pypeg2 into (FABgen needs it to generate HARFANG's bindings).
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
       - name: Fetch HARFANG 3.2.7 and apply the Lab patch
         run: |
-          pip install pypeg2
+          python -m pip install pypeg2
           python bullet-next/tools/fetch_harfang.py hg
       - name: Configure (Visual Studio 2022)
         run: >
           cmake -S hg/harfang -B build-hg -G "Visual Studio 17 2022" -A x64
+          -DPython3_EXECUTABLE=${{ env.pythonLocation }}/python.exe
           -DHG_BULLET_NEXT_DIR=${{ github.workspace }}/bullet-next -DHG_FABGEN_PATH=${{ github.workspace }}/hg/fabgen
           -DHG_BUILD_HG_PYTHON=OFF -DHG_BUILD_TESTS=ON -DHG_BUILD_ASSIMP_CONVERTER=OFF -DHG_BUILD_FBX_CONVERTER=OFF
           -DHG_BUILD_GLTF_EXPORTER=OFF -DHG_BUILD_GLTF_IMPORTER=OFF
       # The viewer's post-build step compiles its shaders with assetc and shaderc (Direct3D 11).
       - name: Build
         run: cmake --build build-hg --config Release --target tests bnl_viewer -- /m
-      - name: HARFANG unit tests
-        continue-on-error: true  # the runner has no audio device
-        run: cd build-hg/harfang/tests/Release; ./tests.exe
+      - name: HARFANG unit tests (audio may fail; the runner has no sound device)
+        run: python bullet-next/tools/run_harfang_tests.py build-hg hg/harfang --config Release
       - uses: actions/upload-artifact@v4
         with:
           name: harfang-windows-viewer
