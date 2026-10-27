@@ -312,8 +312,12 @@ public:
 		vd = _mm_add_ss(vd, y);
 		vd = _mm_add_ss(vd, z);
 
-#if 0
-        vd = _mm_sqrt_ss(vd);
+#ifndef BN_APPROX_NORMALIZE
+		// Bullet NEXT (FL, found by the Lab): an exact square root, as the scalar path computes.
+		// The estimate below (rsqrtss) is not the same on every CPU: Intel and AMD return
+		// different bits, and WebAssembly computes it exactly, so the same scene gave different
+		// results on different machines.
+		vd = _mm_sqrt_ss(vd);
 		vd = _mm_div_ss(v1110, vd);
 		vd = bt_splat_ps(vd, 0x80);
 		mVec128 = _mm_mul_ps(mVec128, vd);

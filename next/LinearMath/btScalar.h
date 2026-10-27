@@ -214,8 +214,10 @@ inline int btIsDoublePrecision()
 	//non-windows systems
 
 			// Bullet NEXT (F1, C1.2): SSE on Linux/BSD x86-64 too, not only on Apple and MSVC.
-			#if ((defined (__APPLE__) || ((defined (__linux__) || defined (__FreeBSD__)) && defined (__x86_64__))) && (!defined (BT_USE_DOUBLE_PRECISION)) && !defined (BN_NO_LINUX_SIMD))
-				#if defined (__i386__) || defined (__x86_64__)
+			// Bullet NEXT (FL, CL.10): and in the browser, through WebAssembly SIMD (built with
+			// -msimd128 -msse2), so a browser run takes the same code path as the PC.
+			#if ((defined (__APPLE__) || ((defined (__linux__) || defined (__FreeBSD__)) && defined (__x86_64__)) || (defined (__EMSCRIPTEN__) && defined (__SSE2__))) && (!defined (BT_USE_DOUBLE_PRECISION)) && !defined (BN_NO_LINUX_SIMD))
+				#if defined (__i386__) || defined (__x86_64__) || defined (__EMSCRIPTEN__)
 					#define BT_USE_SIMD_VECTOR3
 					#define BT_USE_SSE
 					//BT_USE_SSE_IN_API is enabled on Mac OSX by default, because memory is automatically aligned on 16-byte boundaries
@@ -433,6 +435,28 @@ inline int btIsDoublePrecision()
 	SIMD_FORCE_INLINE void *operator new[](size_t, void *ptr) { return ptr; }                              \
 	SIMD_FORCE_INLINE void operator delete[](void *, void *) {}
 
+// Bullet NEXT (FL, CL.10): with BN_PORTABLE_MATH, the float sin, cos, atan2, exp... come from
+// Bullet NEXT's own copy of musl's math (third_party/musl_math), so they give the same bits on
+// every system and in the browser. The C libraries disagree in the last bits (glibc even picks a
+// different routine on CPUs with FMA), and Bullet's results followed them.
+#if defined(BN_PORTABLE_MATH) && !defined(BT_USE_DOUBLE_PRECISION) && !defined(BT_FORCE_DOUBLE_FUNCTIONS)
+extern "C" {
+float bn_sinf(float);
+float bn_cosf(float);
+float bn_tanf(float);
+float bn_asinf(float);
+float bn_acosf(float);
+float bn_atanf(float);
+float bn_atan2f(float, float);
+float bn_expf(float);
+float bn_logf(float);
+float bn_powf(float, float);
+}
+#define BN_MATHF(f) bn_##f
+#else
+#define BN_MATHF(f) f
+#endif
+
 #if defined(BT_USE_DOUBLE_PRECISION) || defined(BT_FORCE_DOUBLE_FUNCTIONS)
 
 	SIMD_FORCE_INLINE btScalar btSqrt(btScalar x)
@@ -496,16 +520,16 @@ inline int btIsDoublePrecision()
 	#endif
 	}
 	SIMD_FORCE_INLINE btScalar btFabs(btScalar x) { return fabsf(x); }
-	SIMD_FORCE_INLINE btScalar btCos(btScalar x) { return cosf(x); }
-	SIMD_FORCE_INLINE btScalar btSin(btScalar x) { return sinf(x); }
-	SIMD_FORCE_INLINE btScalar btTan(btScalar x) { return tanf(x); }
+	SIMD_FORCE_INLINE btScalar btCos(btScalar x) { return BN_MATHF(cosf)(x); }
+	SIMD_FORCE_INLINE btScalar btSin(btScalar x) { return BN_MATHF(sinf)(x); }
+	SIMD_FORCE_INLINE btScalar btTan(btScalar x) { return BN_MATHF(tanf)(x); }
 	SIMD_FORCE_INLINE btScalar btAcos(btScalar x)
 	{
 		if (x < btScalar(-1))
 			x = btScalar(-1);
 		if (x > btScalar(1))
 			x = btScalar(1);
-		return acosf(x);
+		return BN_MATHF(acosf)(x);
 	}
 	SIMD_FORCE_INLINE btScalar btAsin(btScalar x)
 	{
@@ -513,13 +537,13 @@ inline int btIsDoublePrecision()
 			x = btScalar(-1);
 		if (x > btScalar(1))
 			x = btScalar(1);
-		return asinf(x);
+		return BN_MATHF(asinf)(x);
 	}
-	SIMD_FORCE_INLINE btScalar btAtan(btScalar x) { return atanf(x); }
-	SIMD_FORCE_INLINE btScalar btAtan2(btScalar x, btScalar y) { return atan2f(x, y); }
-	SIMD_FORCE_INLINE btScalar btExp(btScalar x) { return expf(x); }
-	SIMD_FORCE_INLINE btScalar btLog(btScalar x) { return logf(x); }
-	SIMD_FORCE_INLINE btScalar btPow(btScalar x, btScalar y) { return powf(x, y); }
+	SIMD_FORCE_INLINE btScalar btAtan(btScalar x) { return BN_MATHF(atanf)(x); }
+	SIMD_FORCE_INLINE btScalar btAtan2(btScalar x, btScalar y) { return BN_MATHF(atan2f)(x, y); }
+	SIMD_FORCE_INLINE btScalar btExp(btScalar x) { return BN_MATHF(expf)(x); }
+	SIMD_FORCE_INLINE btScalar btLog(btScalar x) { return BN_MATHF(logf)(x); }
+	SIMD_FORCE_INLINE btScalar btPow(btScalar x, btScalar y) { return BN_MATHF(powf)(x, y); }
 	SIMD_FORCE_INLINE btScalar btFmod(btScalar x, btScalar y) { return fmodf(x, y); }
 
 #endif//BT_USE_DOUBLE_PRECISION
