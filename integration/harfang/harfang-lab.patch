@@ -148,10 +148,10 @@ index a42576e..7adedfd 100644
  endif()
 \ No newline at end of file
 diff --git a/harfang/CMakeLists.txt b/harfang/CMakeLists.txt
-index cf457ee..b1cbb73 100644
+index cf457ee..ba53732 100644
 --- a/harfang/CMakeLists.txt
 +++ b/harfang/CMakeLists.txt
-@@ -22,3 +22,33 @@ if(HG_BUILD_DOCS)
+@@ -22,3 +22,43 @@ if(HG_BUILD_DOCS)
  		VERBATIM
  	)
  endif()
@@ -179,6 +179,16 @@ index cf457ee..b1cbb73 100644
 +	# The viewer's shaders are compiled next to it (assets_compiled) by assetc with bgfx's shaderc.
 +	if(HG_BUILD_ASSETC)
 +		add_dependencies(bnl_viewer assetc shaderc)
++		# On Windows, assetc and the viewer load HARFANG's DLLs (Lua, GLFW), which are built in
++		# their own folders: copy them next to both programs first (CMake 3.21+).
++		if(WIN32 AND NOT CMAKE_VERSION VERSION_LESS 3.21)
++			add_custom_command(TARGET bnl_viewer POST_BUILD
++				COMMAND ${CMAKE_COMMAND} -E $<IF:$<BOOL:$<TARGET_RUNTIME_DLLS:assetc>>,copy_if_different,true>
++					$<TARGET_RUNTIME_DLLS:assetc> $<TARGET_FILE_DIR:assetc>
++				COMMAND ${CMAKE_COMMAND} -E $<IF:$<BOOL:$<TARGET_RUNTIME_DLLS:bnl_viewer>>,copy_if_different,true>
++					$<TARGET_RUNTIME_DLLS:bnl_viewer> $<TARGET_FILE_DIR:bnl_viewer>
++				COMMAND_EXPAND_LISTS)
++		endif()
 +		add_custom_command(TARGET bnl_viewer POST_BUILD
 +			COMMAND $<TARGET_FILE:assetc> -toolchain $<TARGET_FILE_DIR:shaderc> -q
 +				${HG_BULLET_NEXT_DIR}/lab/viewer/assets $<TARGET_FILE_DIR:bnl_viewer>/assets_compiled
