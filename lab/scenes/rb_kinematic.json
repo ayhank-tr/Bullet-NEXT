@@ -1,0 +1,225 @@
+{
+ "name": "rb_kinematic",
+ "covers": "rb:animated passive,deactivation",
+ "profile": "blender53-rb",
+ "frames": 250,
+ "settings": {
+  "ticrate": 24.0,
+  "substeps": 10,
+  "gravity_z": -9.81,
+  "iterations": 10
+ },
+ "objects": [
+  {
+   "body": {
+    "type": "static",
+    "at": {
+     "p": [
+      0,
+      0,
+      -0.5
+     ]
+    },
+    "shape": "box",
+    "half": [
+     10.0,
+     10.0,
+     0.5
+    ],
+    "name": "ground"
+   }
+  },
+  {
+   "body": {
+    "type": "static",
+    "at": {
+     "p": [
+      -6,
+      0,
+      0.5
+     ]
+    },
+    "shape": "box",
+    "half": [
+     0.2,
+     2.0,
+     0.5
+    ],
+    "animated": true
+   }
+  },
+  {
+   "body": {
+    "type": "static",
+    "at": {
+     "p": [
+      5,
+      0,
+      0.2
+     ]
+    },
+    "shape": "box",
+    "half": [
+     1.0,
+     1.0,
+     0.1
+    ],
+    "animated": true
+   }
+  },
+  {
+   "body": {
+    "type": "rigid",
+    "at": {
+     "p": [
+      -3.0,
+      -0.5,
+      0.4
+     ]
+    },
+    "shape": "box",
+    "half": [
+     0.4,
+     0.4,
+     0.4
+    ],
+    "mass": 1.0,
+    "use_deactivation": true
+   }
+  },
+  {
+   "body": {
+    "type": "rigid",
+    "at": {
+     "p": [
+      -2.1,
+      -0.25,
+      0.4
+     ]
+    },
+    "shape": "box",
+    "half": [
+     0.4,
+     0.4,
+     0.4
+    ],
+    "mass": 1.0,
+    "use_deactivation": true
+   }
+  },
+  {
+   "body": {
+    "type": "rigid",
+    "at": {
+     "p": [
+      -1.2,
+      0.0,
+      0.4
+     ]
+    },
+    "shape": "box",
+    "half": [
+     0.4,
+     0.4,
+     0.4
+    ],
+    "mass": 1.0,
+    "use_deactivation": true
+   }
+  },
+  {
+   "body": {
+    "type": "rigid",
+    "at": {
+     "p": [
+      -0.2999999999999998,
+      0.25,
+      0.4
+     ]
+    },
+    "shape": "box",
+    "half": [
+     0.4,
+     0.4,
+     0.4
+    ],
+    "mass": 1.0,
+    "use_deactivation": true
+   }
+  },
+  {
+   "body": {
+    "type": "rigid",
+    "at": {
+     "p": [
+      0.6000000000000001,
+      0.5,
+      0.4
+     ]
+    },
+    "shape": "box",
+    "half": [
+     0.4,
+     0.4,
+     0.4
+    ],
+    "mass": 1.0,
+    "use_deactivation": true
+   }
+  },
+  {
+   "body": {
+    "type": "rigid",
+    "at": {
+     "p": [
+      5,
+      0,
+      0.7
+     ]
+    },
+    "shape": "box",
+    "half": [
+     0.4,
+     0.4,
+     0.4
+    ],
+    "mass": 2.0
+   }
+  }
+ ],
+ "actions": [
+  {
+   "op": "kinematic_move",
+   "from": 0,
+   "to": 199,
+   "body": 1,
+   "v": [
+    0.06,
+    0,
+    0
+   ]
+  },
+  {
+   "op": "kinematic_move",
+   "from": 24,
+   "to": 120,
+   "body": 2,
+   "v": [
+    0,
+    0,
+    0.03
+   ]
+  },
+  {
+   "op": "kinematic_move",
+   "from": 121,
+   "to": 200,
+   "body": 2,
+   "v": [
+    0,
+    0,
+    -0.02
+   ]
+  }
+ ]
+}

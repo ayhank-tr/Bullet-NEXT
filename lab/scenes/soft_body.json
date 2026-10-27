@@ -1,0 +1,15 @@
+{
+  "covers": "3,10,12",
+  "frames": 300,
+  "name": "soft_body",
+  "profile": "bge279",
+  "settings": {"ang_sleep":1.0,"contact_breaking":0.02,"deactivation_time":2.0,"gravity_z":-9.81,"lin_sleep":0.8,"substeps":1,"ticrate":60.0},
+  "objects": [
+    {"body":{"at":{"p":[0.0,0.0,-0.5]},"half":[20.0,20.0,0.5],"name":"ground","shape":"box","type":"static"}},
+    {"body":{"at":{"p":[0.0,0.0,3.0],"q":[0.19866933,0.0,0.0,0.9800666]},"bending":true,"mesh":{"grid":[6,6],"size":1.0},"type":"soft"}},
+    {"body":{"at":{"p":[3.0,0.0,2.0]},"mesh":{"box":[0.5,0.5,0.5]},"shape_matching":true,"type":"soft"}},
+    {"body":{"at":{"p":[-3.0,0.0,1.0]},"half":[0.5,0.5,0.5],"shape":"box","type":"rigid"}}
+  ],
+  "actions": [
+  ]
+}

@@ -1,0 +1,23 @@
+{
+  "covers": "3,9,12",
+  "frames": 480,
+  "name": "character",
+  "profile": "bge279",
+  "settings": {"ang_sleep":1.0,"contact_breaking":0.02,"deactivation_time":2.0,"gravity_z":-9.81,"lin_sleep":0.8,"substeps":1,"ticrate":60.0},
+  "objects": [
+    {"body":{"at":{"p":[0.0,0.0,-0.5]},"half":[20.0,20.0,0.5],"name":"ground","shape":"box","type":"static"}},
+    {"body":{"at":{"p":[0.0,3.0,0.1]},"half":[2.0,0.3,0.1],"mass":0.0,"shape":"box","type":"static"}},
+    {"body":{"at":{"p":[0.0,3.6,0.3]},"half":[2.0,0.3,0.3],"mass":0.0,"shape":"box","type":"static"}},
+    {"body":{"at":{"p":[0.0,4.2,0.5]},"half":[2.0,0.3,0.5],"mass":0.0,"shape":"box","type":"static"}},
+    {"body":{"at":{"p":[0.0,4.8,0.70000005]},"half":[2.0,0.3,0.70000005],"mass":0.0,"shape":"box","type":"static"}},
+    {"body":{"at":{"p":[0.0,5.4,0.90000004]},"half":[2.0,0.3,0.90000004],"mass":0.0,"shape":"box","type":"static"}},
+    {"body":{"at":{"p":[0.0,6.0,1.1]},"half":[2.0,0.3,1.1],"mass":0.0,"shape":"box","type":"static"}},
+    {"body":{"at":{"p":[0.0,0.0,1.0]},"fall_speed":55.0,"height":1.0,"jump_speed":6.0,"radius":0.4,"shape":"capsule_z","step_height":0.35,"type":"character"}}
+  ],
+  "actions": [
+    {"body":7,"from":0,"op":"walk","to":299,"v":[0.0,0.05,0.0]},
+    {"body":7,"from":300,"op":"walk","to":-1,"v":[0.03,-0.02,0.0]},
+    {"at":330,"body":7,"op":"jump"},
+    {"at":400,"body":7,"op":"jump"}
+  ]
+}

@@ -1,0 +1,18 @@
+{
+  "covers": "4,12",
+  "frames": 120,
+  "name": "projectile",
+  "profile": "bge279",
+  "settings": {"ang_sleep":1.0,"contact_breaking":0.02,"deactivation_time":2.0,"gravity_z":-9.81,"lin_sleep":0.8,"substeps":1,"ticrate":60.0},
+  "objects": [
+    {"body":{"at":{"p":[0.0,0.0,-0.5]},"half":[20.0,20.0,0.5],"name":"ground","shape":"box","type":"static"}},
+    {"body":{"at":{"p":[10.0,0.0,2.0]},"half":[0.025,3.0,2.0],"mass":0.0,"shape":"box","type":"static"}},
+    {"body":{"at":{"p":[0.0,-2.0,2.0]},"lin_vel":[60.0,0.0,0.0],"mass":0.1,"radius":0.1,"shape":"sphere","type":"rigid"}},
+    {"body":{"at":{"p":[0.0,-1.0,2.0]},"lin_vel":[120.0,0.0,0.0],"mass":0.1,"radius":0.1,"shape":"sphere","type":"rigid"}},
+    {"body":{"at":{"p":[0.0,0.0,2.0]},"lin_vel":[180.0,0.0,0.0],"mass":0.1,"radius":0.1,"shape":"sphere","type":"rigid"}},
+    {"body":{"at":{"p":[0.0,1.0,2.0]},"lin_vel":[240.0,0.0,0.0],"mass":0.1,"radius":0.1,"shape":"sphere","type":"rigid"}},
+    {"body":{"at":{"p":[0.0,2.0,2.0]},"lin_vel":[300.0,0.0,0.0],"mass":0.1,"radius":0.1,"shape":"sphere","type":"rigid"}}
+  ],
+  "actions": [
+  ]
+}

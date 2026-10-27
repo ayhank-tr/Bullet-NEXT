@@ -1,0 +1,14 @@
+{
+  "covers": "4,6,12",
+  "frames": 240,
+  "name": "mesh_slide",
+  "profile": "bge279",
+  "settings": {"ang_sleep":1.0,"contact_breaking":0.02,"deactivation_time":2.0,"gravity_z":-9.81,"lin_sleep":0.8,"substeps":1,"ticrate":60.0},
+  "objects": [
+    {"body":{"at":{"p":[0.0,0.0,0.0]},"mesh":{"grid":[40,40],"size":20.0},"name":"mesh_ground","shape":"mesh","type":"static"}},
+    {"body":{"at":{"p":[-15.0,0.37,0.31]},"friction":0.1,"half":[0.3,0.3,0.3],"lin_vel":[8.0,0.0,0.0],"shape":"box","type":"rigid"}},
+    {"body":{"at":{"p":[-15.0,-3.13,0.31]},"friction":0.1,"lin_vel":[8.0,0.0,0.0],"radius":0.3,"shape":"sphere","type":"rigid"}}
+  ],
+  "actions": [
+  ]
+}

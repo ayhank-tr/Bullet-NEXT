@@ -1,0 +1,20 @@
+{
+  "covers": "4,11,12",
+  "frames": 300,
+  "name": "shape_zoo",
+  "profile": "bge279",
+  "settings": {"ang_sleep":1.0,"contact_breaking":0.02,"deactivation_time":2.0,"gravity_z":-9.81,"lin_sleep":0.8,"substeps":1,"ticrate":60.0},
+  "objects": [
+    {"body":{"at":{"p":[0.0,0.0,0.0]},"mesh":{"grid":[16,16],"size":12.0},"name":"mesh_ground","shape":"mesh","type":"static"}},
+    {"body":{"at":{"p":[-6.0,0.0,3.0],"q":[0.14048044,0.14048044,0.0,0.9800666]},"friction":0.6,"half":[0.5,0.5,0.5],"restitution":0.2,"shape":"box","type":"rigid"}},
+    {"body":{"at":{"p":[-4.0,0.0,3.0]},"friction":0.6,"radius":0.5,"restitution":0.2,"shape":"sphere","type":"rigid"}},
+    {"body":{"at":{"p":[-2.0,0.0,3.0],"q":[0.5646425,0.0,0.0,0.8253356]},"friction":0.6,"half":[0.5,0.5,0.7],"restitution":0.2,"shape":"cylinder_z","type":"rigid"}},
+    {"body":{"at":{"p":[0.0,0.0,3.0],"q":[0.0,0.3428978,0.0,0.9393727]},"friction":0.6,"height":1.2,"radius":0.5,"restitution":0.2,"shape":"cone_z","type":"rigid"}},
+    {"body":{"at":{"p":[2.0,0.0,3.0],"q":[0.70710677,0.0,0.0,0.70710677]},"friction":0.6,"height":1.0,"radius":0.4,"restitution":0.2,"shape":"capsule_z","type":"rigid"}},
+    {"body":{"at":{"p":[4.0,0.0,3.0],"q":[0.0,0.10566873,0.10566873,0.9887711]},"friction":0.6,"inertia":0.6,"points":[[0.6,0.0,-0.5],[0.51961523,0.3,0.5],[0.29999998,0.5196153,-0.5],[-2.6226834e-08,0.6,0.5],[-0.30000004,0.51961523,-0.5],[-0.51961535,0.2999999,0.5],[-0.6,-5.2453668e-08,-0.5],[-0.5196152,-0.30000013,0.5],[-0.29999995,-0.5196153,-0.5],[7.1549286e-09,-0.6,0.5],[0.30000022,-0.5196152,-0.5],[0.51961535,-0.29999986,0.5]],"restitution":0.2,"shape":"hull","type":"rigid"}},
+    {"body":{"at":{"p":[6.0,0.0,3.0],"q":[0.0,0.0,0.24740396,0.9689124]},"dynamic":true,"friction":0.6,"mesh":{"box":[0.6,0.4,0.3]},"restitution":0.2,"shape":"mesh","type":"rigid"}},
+    {"body":{"at":{"p":[0.0,3.0,3.0],"q":[0.14943814,0.0,0.0,0.9887711]},"children":[{"at":{"p":[0.0,0.0,0.0]},"half":[0.6,0.15,0.15],"shape":"box"},{"at":{"p":[0.0,0.0,0.45]},"radius":0.3,"shape":"sphere"}],"friction":0.6,"restitution":0.2,"shape":"compound","type":"rigid"}}
+  ],
+  "actions": [
+  ]
+}

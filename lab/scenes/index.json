@@ -1,0 +1,25 @@
+{
+  "scenes": [
+    "stack_10",
+    "pyramid_10",
+    "shape_zoo",
+    "joints_six",
+    "vehicle",
+    "character",
+    "soft_body",
+    "sensors_filters",
+    "projectile",
+    "tunnel_100",
+    "mesh_slide",
+    "body_types",
+    "kinematic_switch",
+    "pile_1000",
+    "joint_grid",
+    "settings",
+    "rb_stack",
+    "rb_shapes",
+    "rb_constraints",
+    "rb_kinematic",
+    "rb_settings"
+  ]
+}

@@ -1,0 +1,16 @@
+{
+  "covers": "3,11,12",
+  "frames": 240,
+  "name": "body_types",
+  "profile": "bge279",
+  "settings": {"ang_sleep":1.0,"contact_breaking":0.02,"deactivation_time":2.0,"gravity_z":-9.81,"lin_sleep":0.8,"substeps":1,"ticrate":60.0},
+  "objects": [
+    {"body":{"at":{"p":[0.0,0.0,-0.5]},"half":[20.0,20.0,0.5],"name":"ground","shape":"box","type":"static"}},
+    {"body":{"ang_vel":[5.0,0.0,0.0],"at":{"p":[-4.0,0.0,3.0],"q":[0.29552022,0.0,0.0,0.9553365]},"half":[0.5,0.5,0.5],"shape":"box","type":"dynamic"}},
+    {"body":{"ang_factor":[0.0,0.0,1.0],"at":{"p":[-1.0,0.0,3.0],"q":[0.20896436,0.20896436,0.0,0.9553365]},"half":[0.5,0.5,0.5],"lin_factor":[1.0,0.0,1.0],"lin_vel":[1.0,3.0,0.0],"shape":"box","type":"rigid"}},
+    {"body":{"ang_vel":[0.0,0.0,10.0],"at":{"p":[2.0,0.0,1.0]},"clamp_ang_max":1.0,"clamp_vel_max":2.0,"half":[0.5,0.5,0.5],"lin_vel":[10.0,0.0,5.0],"shape":"box","type":"rigid"}},
+    {"body":{"ang_damp":0.6,"at":{"p":[5.0,0.0,1.0]},"half":[0.5,0.5,0.5],"lin_damp":0.6,"lin_vel":[0.0,6.0,4.0],"shape":"box","type":"rigid"}}
+  ],
+  "actions": [
+  ]
+}

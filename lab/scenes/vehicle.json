@@ -1,0 +1,22 @@
+{
+  "covers": "8,12",
+  "frames": 480,
+  "name": "vehicle",
+  "profile": "bge279",
+  "settings": {"ang_sleep":1.0,"contact_breaking":0.02,"deactivation_time":2.0,"gravity_z":-9.81,"lin_sleep":0.8,"substeps":1,"ticrate":60.0},
+  "objects": [
+    {"body":{"at":{"p":[0.0,0.0,0.0]},"mesh":{"grid":[20,20],"size":40.0},"name":"mesh_ground","shape":"mesh","type":"static"}},
+    {"body":{"at":{"p":[0.0,14.0,0.2],"q":[0.07492971,0.0,0.0,0.9971888]},"half":[3.0,3.0,0.4],"mass":0.0,"shape":"box","type":"static"}},
+    {"body":{"at":{"p":[0.0,0.0,1.2]},"half":[0.9,2.0,0.4],"mass":800.0,"no_sleep":true,"shape":"box","type":"rigid"}},
+    {"vehicle":{"chassis":2}},
+    {"wheel":{"axle":[-1.0,0.0,0.0],"down":[0.0,0.0,-1.0],"pos":[0.9,1.4,0.0],"radius":0.4,"rest_length":0.5,"steering":true,"tuning":{"damping_compression":2.0,"damping_relaxation":3.0,"friction_slip":2.0,"roll_influence":0.1,"suspension_stiffness":20.0},"vehicle":0}},
+    {"wheel":{"axle":[-1.0,0.0,0.0],"down":[0.0,0.0,-1.0],"pos":[-0.9,1.4,0.0],"radius":0.4,"rest_length":0.5,"steering":true,"tuning":{"damping_compression":2.0,"damping_relaxation":3.0,"friction_slip":2.0,"roll_influence":0.1,"suspension_stiffness":20.0},"vehicle":0}},
+    {"wheel":{"axle":[-1.0,0.0,0.0],"down":[0.0,0.0,-1.0],"pos":[0.9,-1.4,0.0],"radius":0.4,"rest_length":0.5,"steering":false,"tuning":{"damping_compression":2.0,"damping_relaxation":3.0,"friction_slip":2.0,"roll_influence":0.1,"suspension_stiffness":20.0},"vehicle":0}},
+    {"wheel":{"axle":[-1.0,0.0,0.0],"down":[0.0,0.0,-1.0],"pos":[-0.9,-1.4,0.0],"radius":0.4,"rest_length":0.5,"steering":false,"tuning":{"damping_compression":2.0,"damping_relaxation":3.0,"friction_slip":2.0,"roll_influence":0.1,"suspension_stiffness":20.0},"vehicle":0}}
+  ],
+  "actions": [
+    {"engine":[0.0,0.0,1500.0,1500.0],"from":0,"op":"vehicle","to":239,"vehicle":0},
+    {"from":121,"op":"vehicle","steer":[0.3,0.3],"to":299,"vehicle":0},
+    {"brake":[40.0,40.0,40.0,40.0],"from":361,"op":"vehicle","to":-1,"vehicle":0}
+  ]
+}

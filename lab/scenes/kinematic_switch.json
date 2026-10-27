@@ -1,0 +1,19 @@
+{
+  "covers": "3,11,12",
+  "frames": 240,
+  "name": "kinematic_switch",
+  "profile": "bge279",
+  "settings": {"ang_sleep":1.0,"contact_breaking":0.02,"deactivation_time":2.0,"gravity_z":-9.81,"lin_sleep":0.8,"substeps":1,"ticrate":60.0},
+  "objects": [
+    {"body":{"at":{"p":[0.0,0.0,-0.5]},"half":[20.0,20.0,0.5],"name":"ground","shape":"box","type":"static"}},
+    {"body":{"at":{"p":[0.0,0.0,4.0]},"half":[1.5,1.5,0.2],"mass":5.0,"shape":"box","type":"rigid"}},
+    {"body":{"at":{"p":[-0.5,0.0,5.0]},"half":[0.2,0.2,0.2],"mass":0.5,"shape":"box","type":"rigid"}},
+    {"body":{"at":{"p":[0.0,0.0,6.0]},"half":[0.2,0.2,0.2],"mass":0.5,"shape":"box","type":"rigid"}},
+    {"body":{"at":{"p":[0.5,0.0,7.0]},"half":[0.2,0.2,0.2],"mass":0.5,"shape":"box","type":"rigid"}}
+  ],
+  "actions": [
+    {"at":60,"body":1,"op":"suspend"},
+    {"body":1,"from":61,"op":"kinematic_move","to":149,"v":[0.02,0.0,0.01]},
+    {"body":1,"from":150,"op":"kinematic_move","to":-1,"v":[0.02,0.0,-0.01]}
+  ]
+}

@@ -1,0 +1,18 @@
+{
+  "covers": "3,5,6,12",
+  "frames": 240,
+  "name": "sensors_filters",
+  "profile": "bge279",
+  "settings": {"ang_sleep":1.0,"contact_breaking":0.02,"deactivation_time":2.0,"gravity_z":-9.81,"lin_sleep":0.8,"substeps":1,"ticrate":60.0},
+  "objects": [
+    {"body":{"at":{"p":[0.0,0.0,-0.5]},"half":[20.0,20.0,0.5],"name":"ground","shape":"box","type":"static"}},
+    {"body":{"at":{"p":[0.0,0.0,1.5]},"half":[1.5,1.5,1.5],"name":"sensor","report":true,"shape":"box","type":"sensor"}},
+    {"body":{"at":{"p":[0.0,0.0,6.0]},"half":[0.4,0.4,0.4],"report":true,"shape":"box","type":"rigid"}},
+    {"body":{"at":{"p":[3.0,0.0,4.0]},"ghost":true,"radius":0.5,"report":true,"shape":"sphere","type":"rigid"}},
+    {"body":{"at":{"p":[-3.0,0.0,6.0]},"half":[0.4,0.4,0.4],"report":true,"shape":"box","type":"rigid","user_group":1,"user_mask":65533}},
+    {"body":{"at":{"p":[-3.0,0.0,3.0]},"half":[1.0,1.0,0.2],"shape":"box","type":"static","user_group":2}},
+    {"body":{"at":{"p":[-3.0,0.0,1.0]},"half":[1.0,1.0,0.2],"shape":"box","type":"static","user_group":4}}
+  ],
+  "actions": [
+  ]
+}
