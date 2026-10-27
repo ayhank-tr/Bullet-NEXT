@@ -1,0 +1,16 @@
+{
+  "covers": "F3c T3.4",
+  "frames": 600,
+  "name": "pendulum",
+  "profile": "bge279",
+  "settings": {"ang_sleep":1.0,"contact_breaking":0.02,"deactivation_time":2.0,"gravity_z":-9.81,"lin_sleep":0.8,"substeps":1,"ticrate":60.0},
+  "objects": [
+    {"body":{"at":{"p":[0.0,0.0,-0.5]},"half":[20.0,20.0,0.5],"name":"ground","shape":"box","type":"static"}},
+    {"body":{"ang_damp":0.0,"at":{"p":[2.0,0.0,4.0]},"lin_damp":0.0,"mass":1.0,"no_sleep":true,"radius":0.1,"shape":"sphere","type":"rigid"}},
+    {"constraint":{"a":1,"b":-1,"pivot_a":[-2.0,0.0,0.0],"pivot_b":[0.0,0.0,4.0],"type":"point_to_point"}},
+    {"body":{"ang_damp":0.0,"at":{"p":[2.0,3.0,4.0]},"lin_damp":0.0,"mass":1.0,"no_sleep":true,"radius":0.1,"shape":"sphere","type":"rigid"}},
+    {"constraint":{"a":2,"b":-1,"frame_a":{"p":[-2.0,0.0,0.0],"q":[-0.7071067811865476,0.0,0.0,0.7071067811865476]},"frame_b":{"p":[0.0,3.0,4.0],"q":[-0.7071067811865476,0.0,0.0,0.7071067811865476]},"type":"hinge"}}
+  ],
+  "actions": [
+  ]
+}

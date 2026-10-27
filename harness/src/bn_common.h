@@ -19,6 +19,7 @@
 #include "BulletDynamics/Dynamics/btNextFeatures.h"
 #include "BulletCollision/CollisionDispatch/btConvexConcaveCollisionAlgorithm.h"
 #include "BulletDynamics/ConstraintSolver/btNNCGConstraintSolver.h"
+#include "BulletDynamics/ConstraintSolver/btSoftStepConstraintSolver.h"
 #endif
 #if BN_NEXT_FEATURES
 #include "BulletDynamics/Dynamics/btDiscreteDynamicsWorldMt.h"

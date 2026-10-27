@@ -178,6 +178,12 @@ struct SettingsDesc {
   float erp = -1, erp2 = -1, cfm = -1;
   int features = -1;               // Bullet NEXT features: 2 linked collision, 4 hull clipping,
                                    // 8 active edges, 16 CCD, 1 world configuration (bits add up)
+  // Soft Step solver (Bullet NEXT, F3c): solver "soft_step"; -1 = the solver's default.
+  bool softStep = false;
+  int solverSubsteps = -1, solverIterations = -1, relaxIterations = -1, manifoldIterations = -1, jointIterations = -1;
+  float jointWarmStart = -1, jointHertz = -1, jointDampingRatio = -1;
+  float substepRate = -1;
+  float contactHertz = -1, contactDampingRatio = -1, contactPushSpeed = -1;
 };
 
 struct SceneDesc {

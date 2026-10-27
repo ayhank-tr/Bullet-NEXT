@@ -1,0 +1,32 @@
+{
+  "covers": "F3c T3.2",
+  "frames": 600,
+  "name": "stack_20",
+  "profile": "bge279",
+  "settings": {"ang_sleep":1.0,"contact_breaking":0.02,"deactivation_time":2.0,"gravity_z":-9.81,"lin_sleep":0.8,"substeps":1,"ticrate":60.0},
+  "objects": [
+    {"body":{"at":{"p":[0.0,0.0,-0.5]},"half":[20.0,20.0,0.5],"name":"ground","shape":"box","type":"static"}},
+    {"body":{"at":{"p":[0.0,0.0,0.5]},"half":[0.5,0.5,0.5],"no_sleep":true,"shape":"box","type":"rigid"}},
+    {"body":{"at":{"p":[0.0,0.0,1.5]},"half":[0.5,0.5,0.5],"no_sleep":true,"shape":"box","type":"rigid"}},
+    {"body":{"at":{"p":[0.0,0.0,2.5]},"half":[0.5,0.5,0.5],"no_sleep":true,"shape":"box","type":"rigid"}},
+    {"body":{"at":{"p":[0.0,0.0,3.5]},"half":[0.5,0.5,0.5],"no_sleep":true,"shape":"box","type":"rigid"}},
+    {"body":{"at":{"p":[0.0,0.0,4.5]},"half":[0.5,0.5,0.5],"no_sleep":true,"shape":"box","type":"rigid"}},
+    {"body":{"at":{"p":[0.0,0.0,5.5]},"half":[0.5,0.5,0.5],"no_sleep":true,"shape":"box","type":"rigid"}},
+    {"body":{"at":{"p":[0.0,0.0,6.5]},"half":[0.5,0.5,0.5],"no_sleep":true,"shape":"box","type":"rigid"}},
+    {"body":{"at":{"p":[0.0,0.0,7.5]},"half":[0.5,0.5,0.5],"no_sleep":true,"shape":"box","type":"rigid"}},
+    {"body":{"at":{"p":[0.0,0.0,8.5]},"half":[0.5,0.5,0.5],"no_sleep":true,"shape":"box","type":"rigid"}},
+    {"body":{"at":{"p":[0.0,0.0,9.5]},"half":[0.5,0.5,0.5],"no_sleep":true,"shape":"box","type":"rigid"}},
+    {"body":{"at":{"p":[0.0,0.0,10.5]},"half":[0.5,0.5,0.5],"no_sleep":true,"shape":"box","type":"rigid"}},
+    {"body":{"at":{"p":[0.0,0.0,11.5]},"half":[0.5,0.5,0.5],"no_sleep":true,"shape":"box","type":"rigid"}},
+    {"body":{"at":{"p":[0.0,0.0,12.5]},"half":[0.5,0.5,0.5],"no_sleep":true,"shape":"box","type":"rigid"}},
+    {"body":{"at":{"p":[0.0,0.0,13.5]},"half":[0.5,0.5,0.5],"no_sleep":true,"shape":"box","type":"rigid"}},
+    {"body":{"at":{"p":[0.0,0.0,14.5]},"half":[0.5,0.5,0.5],"no_sleep":true,"shape":"box","type":"rigid"}},
+    {"body":{"at":{"p":[0.0,0.0,15.5]},"half":[0.5,0.5,0.5],"no_sleep":true,"shape":"box","type":"rigid"}},
+    {"body":{"at":{"p":[0.0,0.0,16.5]},"half":[0.5,0.5,0.5],"no_sleep":true,"shape":"box","type":"rigid"}},
+    {"body":{"at":{"p":[0.0,0.0,17.5]},"half":[0.5,0.5,0.5],"no_sleep":true,"shape":"box","type":"rigid"}},
+    {"body":{"at":{"p":[0.0,0.0,18.5]},"half":[0.5,0.5,0.5],"no_sleep":true,"shape":"box","type":"rigid"}},
+    {"body":{"at":{"p":[0.0,0.0,19.5]},"half":[0.5,0.5,0.5],"no_sleep":true,"shape":"box","type":"rigid"}}
+  ],
+  "actions": [
+  ]
+}

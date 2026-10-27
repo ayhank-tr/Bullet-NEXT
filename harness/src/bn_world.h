@@ -37,6 +37,12 @@ struct Settings {
   int nncg = 0;                     // Bullet NEXT: 1 = NNCG solver (setSolverType), single-threaded world
   float erp = -1, erp2 = -1, cfm = -1;  // joint ERP, contact ERP, CFM (UPBGE names)
   int features = -1;                // Bullet NEXT features (bits as BN_FEATURES); -1 = BN_FEATURES or all
+  // Soft Step solver (Bullet NEXT, F3c); -1 = the solver's default.
+  int softStep = 0;
+  int solverSubsteps = -1, solverIterations = -1, relaxIterations = -1, manifoldIterations = -1, jointIterations = -1;
+  float jointWarmStart = -1, jointHertz = -1, jointDampingRatio = -1;
+  float substepRate = -1;
+  float contactHertz = -1, contactDampingRatio = -1, contactPushSpeed = -1;
   int profile = kBge279;
   bool splitImpulse = false;        // Blender rigid body world settings
   float timeScale = 1.0f;
@@ -143,6 +149,10 @@ class World {
   void tick(btScalar dt);             // per-substep velocity clamping
   void applyGlobals();
   bool featureOn(int bit) const;    // Bullet NEXT feature switch (scene file, else BN_FEATURES)
+#if BN_NEXT_LIB
+  // Soft Step solvers of this world (one, or one per thread); owned by the world or the pool.
+  const std::vector<btSoftStepConstraintSolver*>& softStepSolvers() const { return m_softStepSolvers; }
+#endif
 
  private:
   btRigidBody* rigidOf(int i);
@@ -159,6 +169,10 @@ class World {
   btOverlapFilterCallback* m_filter = nullptr;
   btGhostPairCallback* m_ghostCb = nullptr;
   btConstraintSolver* m_solver = nullptr;
+#if BN_NEXT_LIB
+  btSoftStepConstraintSolver* newSoftStepSolver();
+  std::vector<btSoftStepConstraintSolver*> m_softStepSolvers;
+#endif
   btDiscreteDynamicsWorld* m_world = nullptr;
   btSoftRigidDynamicsWorld* m_soft = nullptr;
 #if BN_NEXT_FEATURES

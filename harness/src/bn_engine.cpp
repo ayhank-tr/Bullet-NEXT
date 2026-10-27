@@ -20,16 +20,27 @@ class RayAll : public btCollisionWorld::AllHitsRayResultCallback {
   RayAll(const btVector3& a, const btVector3& b) : btCollisionWorld::AllHitsRayResultCallback(a, b) {}
 };
 
+// Angle between two unit axes.
+float axisAngle(const btVector3& a, const btVector3& b) {
+  btScalar d = a.dot(b);
+  if (d > 1) d = 1;
+  if (d < -1) d = -1;
+  return (float)btAcos(d);
+}
+
 class EngineImpl : public bnl::Engine {
  public:
+  // softStep: the "nexts" engine, Bullet NEXT with the Soft Step solver on every scene (F3c).
+  explicit EngineImpl(bool softStep = false) : m_forceSoftStep(softStep) {}
   ~EngineImpl() { delete m_world; }
 
-  const char* backend() const { return BN_BACKEND_NAME; }
+  const char* backend() const { return m_forceSoftStep ? "nexts" : BN_BACKEND_NAME; }
 
   bool build(const bnl::SceneDesc& s, const bnl::EngineOptions& o, std::string& error) {
     if (m_world) { error = "engine already built"; return false; }
     m_scene = s;
     Settings st = settingsOf(s);
+    if (m_forceSoftStep) st.softStep = 1;
     st.gravityZ += o.gravityOffset;
     st.threads = o.threads;
     m_world = new World(st);
@@ -184,8 +195,102 @@ class EngineImpl : public bnl::Engine {
     if (btKinematicCharacterController* c = m_world->body(b).character) c->jump();
   }
 
+  bool solverStats(bnl::SolverStats& out) const {
+    out = bnl::SolverStats();
+#if BN_NEXT_LIB
+    if (!m_world || m_world->softStepSolvers().empty()) return false;
+    for (const btSoftStepConstraintSolver* s : m_world->softStepSolvers()) {
+      const btSoftStepStats& st = s->getStats();
+      out.prepareMicros += st.m_prepareMicros; out.substepMicros += st.m_substepMicros;
+      out.restitutionMicros += st.m_restitutionMicros; out.storeMicros += st.m_storeMicros;
+      out.groups += st.m_groups; out.bodies += st.m_bodies;
+      out.contactPoints += st.m_contactPoints; out.jointRows += st.m_jointRows;
+    }
+    return true;
+#else
+    return false;
+#endif
+  }
+
+  bool energy(double& out) const {
+    out = 0;
+    if (!m_world) return false;
+    const btScalar gz = m_world->dyn()->getGravity().z();
+    for (const BodyRec& b : m_world->bodies()) {
+      if (!b.rb || b.rb->getInvMass() <= 0 || b.rb->isStaticOrKinematicObject()) continue;
+      const btScalar m = btScalar(1) / b.rb->getInvMass();
+      const btVector3 v = b.rb->getLinearVelocity();
+      const btVector3 wl = b.rb->getAngularVelocity() * b.rb->getWorldTransform().getBasis();  // body frame
+      const btVector3 inv = b.rb->getInvInertiaDiagLocal();
+      double rot = 0;
+      for (int k = 0; k < 3; ++k) if (inv[k] > 0) rot += double(wl[k]) * wl[k] / inv[k];
+      out += 0.5 * m * v.length2() + 0.5 * rot - double(m) * gz * b.rb->getCenterOfMassPosition().z();
+    }
+    return true;
+  }
+
+  void jointErrors(std::vector<bnl::JointError>& out) const {
+    out.clear();
+    if (!m_world) return;
+    const std::vector<btTypedConstraint*>& cs = m_world->constraints();
+    for (size_t i = 0; i < cs.size(); ++i) {
+      btTypedConstraint* c = cs[i];
+      bnl::JointError e;
+      e.constraint = (int)i;
+      const btTransform& ta = c->getRigidBodyA().getCenterOfMassTransform();
+      const btTransform& tb = c->getRigidBodyB().getCenterOfMassTransform();
+      switch (c->getConstraintType()) {
+        case POINT2POINT_CONSTRAINT_TYPE: {
+          btPoint2PointConstraint* p = static_cast<btPoint2PointConstraint*>(c);
+          e.linear = (float)(ta * p->getPivotInA() - tb * p->getPivotInB()).length();
+          break;
+        }
+        case HINGE_CONSTRAINT_TYPE: {
+          btHingeConstraint* h = static_cast<btHingeConstraint*>(c);
+          const btTransform fa = ta * h->getAFrame(), fb = tb * h->getBFrame();
+          if (!h->getAngularOnly()) e.linear = (float)(fa.getOrigin() - fb.getOrigin()).length();
+          e.angular = axisAngle(fa.getBasis().getColumn(2), fb.getBasis().getColumn(2));
+          break;
+        }
+        case CONETWIST_CONSTRAINT_TYPE: {
+          btConeTwistConstraint* k = static_cast<btConeTwistConstraint*>(c);
+          e.linear = (float)((ta * k->getAFrame()).getOrigin() - (tb * k->getBFrame()).getOrigin()).length();
+          break;
+        }
+        case D6_CONSTRAINT_TYPE:
+        case D6_SPRING_CONSTRAINT_TYPE: {
+          btGeneric6DofConstraint* d = static_cast<btGeneric6DofConstraint*>(c);
+          btVector3 lo, hi;
+          d->getLinearLowerLimit(lo);
+          d->getLinearUpperLimit(hi);
+          if (lo.isZero() && hi.isZero())
+            e.linear = (float)((ta * d->getFrameOffsetA()).getOrigin() - (tb * d->getFrameOffsetB()).getOrigin()).length();
+          break;
+        }
+        case D6_SPRING_2_CONSTRAINT_TYPE: {
+          btGeneric6DofSpring2Constraint* d = static_cast<btGeneric6DofSpring2Constraint*>(c);
+          btVector3 lo, hi;
+          d->getLinearLowerLimit(lo);
+          d->getLinearUpperLimit(hi);
+          if (lo.isZero() && hi.isZero())
+            e.linear = (float)((ta * d->getFrameOffsetA()).getOrigin() - (tb * d->getFrameOffsetB()).getOrigin()).length();
+          break;
+        }
+        case FIXED_CONSTRAINT_TYPE: {
+          btFixedConstraint* f = static_cast<btFixedConstraint*>(c);
+          e.linear = (float)((ta * f->getFrameOffsetA()).getOrigin() - (tb * f->getFrameOffsetB()).getOrigin()).length();
+          break;
+        }
+        default:
+          break;
+      }
+      out.push_back(e);
+    }
+  }
+
  private:
   btRigidBody* rb(int b) { return m_world->body(b).rb; }
+  bool m_forceSoftStep = false;
 
   bnl::SceneDesc m_scene;
   World* m_world = nullptr;
@@ -201,3 +306,7 @@ BN_NAMESPACE_END
 #define BN_CAT(a, b) BN_CAT2(a, b)
 
 bnl::Engine* BN_CAT(bnl_create_engine_, BN_TAG)() { return new bn::BN_TAG::EngineImpl(); }
+#if BN_NEXT_FEATURES
+// "nexts" (F3c): Bullet NEXT with its features and the Soft Step solver.
+bnl::Engine* BN_CAT(BN_CAT(bnl_create_engine_, BN_TAG), _softstep)() { return new bn::BN_TAG::EngineImpl(true); }
+#endif

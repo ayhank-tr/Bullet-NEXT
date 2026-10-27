@@ -25,6 +25,15 @@ Settings settingsOf(const bnl::SettingsDesc& d) {
   s.nncg = d.nncg ? 1 : 0;
   s.erp = d.erp; s.erp2 = d.erp2; s.cfm = d.cfm;
   s.features = d.features;
+  s.softStep = d.softStep ? 1 : 0;
+  s.solverSubsteps = d.solverSubsteps;
+  s.substepRate = d.substepRate;
+  s.solverIterations = d.solverIterations; s.relaxIterations = d.relaxIterations;
+  s.manifoldIterations = d.manifoldIterations;
+  s.jointIterations = d.jointIterations;
+  s.jointWarmStart = d.jointWarmStart;
+  s.jointHertz = d.jointHertz; s.jointDampingRatio = d.jointDampingRatio;
+  s.contactHertz = d.contactHertz; s.contactDampingRatio = d.contactDampingRatio; s.contactPushSpeed = d.contactPushSpeed;
   s.splitImpulse = d.splitImpulse;
   s.timeScale = d.timeScale;
   return s;

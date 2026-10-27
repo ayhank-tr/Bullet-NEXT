@@ -33,6 +33,20 @@ struct RayHit {
   float t = 1;          // fraction along the ray
 };
 
+// Solver work since build() (F3c, C3.9); filled by engines that can measure it.
+struct SolverStats {
+  double prepareMicros = 0, substepMicros = 0, restitutionMicros = 0, storeMicros = 0;
+  int groups = 0, bodies = 0, contactPoints = 0, jointRows = 0;
+};
+
+// How far each joint is from what it holds together (F3c, C3.9): the distance between the two
+// anchor points (where the joint holds them together) and the angle between the hinge axes.
+struct JointError {
+  int constraint = -1;    // scene constraint index
+  float linear = -1;      // metres; -1: the joint leaves the anchors free
+  float angular = -1;     // radians; -1: the joint leaves the axis free
+};
+
 struct EngineOptions {
   int threads = -1;           // Bullet NEXT threaded world: -1 = BN_THREADS variable, 0 = off
   float gravityOffset = 0;    // added to gravity Z (the harness --variant switch)
@@ -80,6 +94,12 @@ class Engine {
   virtual void vehicleControl(int vehicle, int wheel, float engine, float brake, float steer) = 0;
   virtual void characterWalk(int b, const Vec3& step) = 0;
   virtual void characterJump(int b) = 0;
+
+  // Measurements (F3c, C3.9). Engines that cannot measure them return false or nothing.
+  virtual bool solverStats(SolverStats& out) const { (void)out; return false; }
+  virtual void jointErrors(std::vector<JointError>& out) const { out.clear(); }
+  // Kinetic plus potential energy of the moving rigid bodies (J), gravity along Z.
+  virtual bool energy(double& out) const { out = 0; return false; }
 };
 
 // Random collision pairs (TL.7, harness/src/bn_fuzz.cpp): Bullet engines only.

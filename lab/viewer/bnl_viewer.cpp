@@ -2,7 +2,7 @@
 // A HARFANG program. Opens straight into the scene (no splash screen).
 //   bnl_viewer [--scene NAME] [--left ENGINE] [--right ENGINE] [--scenes DIR] [--assets DIR]
 //              [--left-recording FILE] [--right-recording FILE] [--frames N]
-// Engines: those linked in (legacy, next, nextf, jolt) and "replay" (needs a recording, e.g. one
+// Engines: those linked in (legacy, next, nextf, nexts, jolt) and "replay" (needs a recording, e.g. one
 // written by bn_harness_<backend> record or bnl_chrono). --frames N quits after N frames (checks).
 //
 // Mouse: left drag orbits, right drag pans, wheel zooms. Keys: Space play/pause, Right one frame,

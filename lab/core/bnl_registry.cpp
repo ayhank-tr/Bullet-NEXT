@@ -12,6 +12,7 @@ void bnl_fuzz_next(unsigned seed, int pairs, bnl::FuzzResult& r);
 #endif
 #if BNL_HAVE_NEXTF
 bnl::Engine* bnl_create_engine_nextf();
+bnl::Engine* bnl_create_engine_nextf_softstep();
 void bnl_fuzz_nextf(unsigned seed, int pairs, bnl::FuzzResult& r);
 #endif
 #if BNL_HAVE_JOLT
@@ -30,6 +31,7 @@ std::vector<std::string> engineNames() {
 #endif
 #if BNL_HAVE_NEXTF
   n.push_back("nextf");
+  n.push_back("nexts");
 #endif
 #if BNL_HAVE_JOLT
   n.push_back("jolt");
@@ -46,6 +48,7 @@ Engine* createEngine(const std::string& name) {
 #endif
 #if BNL_HAVE_NEXTF
   if (name == "nextf") return bnl_create_engine_nextf();
+  if (name == "nexts") return bnl_create_engine_nextf_softstep();
 #endif
 #if BNL_HAVE_JOLT
   if (name == "jolt") return bnl_create_engine_jolt();

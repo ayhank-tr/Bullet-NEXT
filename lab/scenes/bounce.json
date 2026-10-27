@@ -1,0 +1,16 @@
+{
+  "covers": "F3c T3.5",
+  "frames": 240,
+  "name": "bounce",
+  "profile": "bge279",
+  "settings": {"ang_sleep":1.0,"contact_breaking":0.02,"deactivation_time":2.0,"gravity_z":-9.81,"lin_sleep":0.8,"substeps":1,"ticrate":60.0},
+  "objects": [
+    {"body":{"at":{"p":[0.0,0.0,-0.5]},"half":[20.0,20.0,0.5],"name":"ground","restitution":1.0,"shape":"box","type":"static"}},
+    {"body":{"ang_damp":0.0,"at":{"p":[-3.0,0.0,2.25]},"lin_damp":0.0,"no_sleep":true,"radius":0.25,"restitution":0.0,"shape":"sphere","type":"rigid"}},
+    {"body":{"ang_damp":0.0,"at":{"p":[-1.0,0.0,2.25]},"lin_damp":0.0,"no_sleep":true,"radius":0.25,"restitution":0.3,"shape":"sphere","type":"rigid"}},
+    {"body":{"ang_damp":0.0,"at":{"p":[1.0,0.0,2.25]},"lin_damp":0.0,"no_sleep":true,"radius":0.25,"restitution":0.6,"shape":"sphere","type":"rigid"}},
+    {"body":{"ang_damp":0.0,"at":{"p":[3.0,0.0,2.25]},"lin_damp":0.0,"no_sleep":true,"radius":0.25,"restitution":0.9,"shape":"sphere","type":"rigid"}}
+  ],
+  "actions": [
+  ]
+}

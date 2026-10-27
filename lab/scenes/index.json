@@ -20,6 +20,11 @@
     "rb_shapes",
     "rb_constraints",
     "rb_kinematic",
-    "rb_settings"
+    "rb_settings",
+    "stack_20",
+    "pyramid_15",
+    "mass_ratio",
+    "bounce",
+    "pendulum"
   ]
 }

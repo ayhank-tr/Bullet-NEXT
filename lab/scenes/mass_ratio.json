@@ -1,0 +1,20 @@
+{
+  "covers": "F3c T3.3",
+  "frames": 600,
+  "name": "mass_ratio",
+  "profile": "bge279",
+  "settings": {"ang_sleep":1.0,"contact_breaking":0.02,"deactivation_time":2.0,"gravity_z":-9.81,"lin_sleep":0.8,"substeps":1,"ticrate":60.0},
+  "objects": [
+    {"body":{"at":{"p":[0.0,0.0,-0.5]},"half":[20.0,20.0,0.5],"name":"ground","shape":"box","type":"static"}},
+    {"body":{"at":{"p":[-2.0,0.0,0.5]},"half":[0.5,0.5,0.5],"mass":1.0,"no_sleep":true,"shape":"box","type":"rigid"}},
+    {"body":{"at":{"p":[-2.0,0.0,1.5]},"half":[0.5,0.5,0.5],"mass":100.0,"no_sleep":true,"shape":"box","type":"rigid"}},
+    {"body":{"at":{"p":[2.0,0.0,0.5]},"half":[0.5,0.5,0.5],"mass":1.0,"no_sleep":true,"shape":"box","type":"rigid"}},
+    {"body":{"at":{"p":[2.0,0.0,1.5]},"half":[0.5,0.5,0.5],"mass":1.0,"no_sleep":true,"shape":"box","type":"rigid"}},
+    {"body":{"at":{"p":[2.0,0.0,2.5]},"half":[0.5,0.5,0.5],"mass":1.0,"no_sleep":true,"shape":"box","type":"rigid"}},
+    {"body":{"at":{"p":[2.0,0.0,3.5]},"half":[0.5,0.5,0.5],"mass":100.0,"no_sleep":true,"shape":"box","type":"rigid"}},
+    {"body":{"at":{"p":[6.0,0.0,0.25]},"half":[0.25,0.25,0.25],"mass":1.0,"no_sleep":true,"shape":"box","type":"rigid"}},
+    {"body":{"at":{"p":[6.0,0.0,0.75]},"half":[1.0,1.0,0.25],"mass":100.0,"no_sleep":true,"shape":"box","type":"rigid"}}
+  ],
+  "actions": [
+  ]
+}

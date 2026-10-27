@@ -110,6 +110,29 @@ static int threadCount(int fromSettings) {
 }
 #endif
 
+#if BN_NEXT_LIB
+// Soft Step solver (F3c): the scene's settings over the solver's defaults.
+btSoftStepConstraintSolver* World::newSoftStepSolver() {
+  btSoftStepSettings ss;
+  if (m_settings.solverSubsteps > 0) ss.m_substeps = m_settings.solverSubsteps;
+  if (m_settings.substepRate > 0) ss.m_substepRate = m_settings.substepRate;
+  if (m_settings.solverIterations > 0) ss.m_iterations = m_settings.solverIterations;
+  if (m_settings.relaxIterations >= 0) ss.m_relaxIterations = m_settings.relaxIterations;
+  if (m_settings.manifoldIterations > 0) ss.m_manifoldIterations = m_settings.manifoldIterations;
+  if (m_settings.jointIterations > 0) ss.m_jointIterations = m_settings.jointIterations;
+  if (m_settings.jointWarmStart >= 0) ss.m_jointWarmStart = m_settings.jointWarmStart;
+  if (m_settings.jointHertz >= 0) ss.m_jointHertz = m_settings.jointHertz;
+  if (m_settings.jointDampingRatio >= 0) ss.m_jointDampingRatio = m_settings.jointDampingRatio;
+  if (m_settings.contactHertz >= 0) ss.m_contactHertz = m_settings.contactHertz;
+  if (m_settings.contactDampingRatio >= 0) ss.m_contactDampingRatio = m_settings.contactDampingRatio;
+  if (m_settings.contactPushSpeed >= 0) ss.m_contactPushMaxVelocity = m_settings.contactPushSpeed;
+  btSoftStepConstraintSolver* solver = new btSoftStepConstraintSolver();
+  solver->setSettings(ss);
+  m_softStepSolvers.push_back(solver);
+  return solver;
+}
+#endif
+
 World::World(const Settings& s) : m_settings(s) {
   if (s.profile == kBlenderRb) {
     // RB_dworld_new (Blender 5.3 intern/rigidbody/rb_bullet_api.cpp)
@@ -119,6 +142,10 @@ World::World(const Settings& s) : m_settings(s) {
     m_broadphase = new btDbvtBroadphase();
     m_filter = new RbOverlapFilter(this);
     m_broadphase->getOverlappingPairCache()->setOverlapFilterCallback(m_filter);
+#if BN_NEXT_LIB
+    if (s.softStep) m_solver = newSoftStepSolver();
+    else
+#endif
     m_solver = new btSequentialImpulseConstraintSolver();
     m_world = new btDiscreteDynamicsWorld(m_dispatcher, m_broadphase, m_solver, m_config);
     m_world->setGravity(btVector3(0, 0, s.gravityZ));
@@ -147,8 +174,16 @@ World::World(const Settings& s) : m_settings(s) {
     }
     m_dispatcher = new btCollisionDispatcherMt(m_config, 40);
     btGImpactCollisionAlgorithm::registerAlgorithm(m_dispatcher);
-    m_solverPool = new btConstraintSolverPoolMt(threads);
-    m_solver = new btSequentialImpulseConstraintSolverMt();
+    if (s.softStep) {
+      // one Soft Step solver per thread; every island goes to the pool (no large-island solver)
+      std::vector<btConstraintSolver*> solvers;
+      for (int i = 0; i < threads; ++i) solvers.push_back(newSoftStepSolver());
+      m_solverPool = new btConstraintSolverPoolMt(&solvers[0], threads);
+      m_solver = nullptr;
+    } else {
+      m_solverPool = new btConstraintSolverPoolMt(threads);
+      m_solver = new btSequentialImpulseConstraintSolverMt();
+    }
     m_softMt = new btSoftRigidDynamicsWorldMt(m_dispatcher, m_broadphase, m_solverPool, m_solver, m_config);
     m_world = m_softMt;
   } else
@@ -157,7 +192,8 @@ World::World(const Settings& s) : m_settings(s) {
     m_dispatcher = new btCollisionDispatcher(m_config);
     btGImpactCollisionAlgorithm::registerAlgorithm(m_dispatcher);
 #if BN_NEXT_LIB
-    if (s.nncg) m_solver = new btNNCGConstraintSolver();  // BGE NEXT: Solver "NNCG"
+    if (s.softStep) m_solver = newSoftStepSolver();       // F3c: Solver "Soft Step"
+    else if (s.nncg) m_solver = new btNNCGConstraintSolver();  // BGE NEXT: Solver "NNCG"
     else
 #endif
     m_solver = new btSequentialImpulseConstraintSolver();  // SetSolverType(1)
