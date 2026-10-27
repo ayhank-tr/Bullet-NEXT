@@ -1,0 +1,341 @@
+diff --git a/doc/python_api/rst/bge.constraints.rst b/doc/python_api/rst/bge.constraints.rst
+index fa0977a..80b5880 100644
+--- a/doc/python_api/rst/bge.constraints.rst
++++ b/doc/python_api/rst/bge.constraints.rst
+@@ -216,8 +216,10 @@ Functions
+ 
+    Sets the solver type.
+ 
+-   With Bullet NEXT: 1 is the sequential impulse solver (the 2.79b solver, default) and 2 is the
+-   NNCG solver, which keeps stacks and chains stiffer.
++   With Bullet NEXT: 1 is the sequential impulse solver (the 2.79b solver, default), 2 is the
++   NNCG solver, which keeps stacks and chains stiffer, and 3 is the Soft Step solver: substeps
++   with soft contacts, for tall stacks, large mass ratios and exact bounces
++   (see :func:`setSoftStepSettings`).
+ 
+    :arg solverType: The new type of the solver.
+    :type solverType: int
+@@ -246,6 +248,21 @@ Functions
+    :arg cfm: The CFM, 0.0 to 10000.0 (default 0.0).
+    :type cfm: float
+ 
++.. function:: setSoftStepSettings(substepRate, contactStiffness, contactDamping, pushSpeed)
++
++   Sets the Soft Step solver's settings (solver type 3). Only with Bullet NEXT. A value of 0.0
++   keeps that setting's default.
++
++   :arg substepRate: Substeps per second (default 540): more is stiffer and slower.
++   :type substepRate: float
++   :arg contactStiffness: Contact stiffness as a spring frequency in Hz (default: an eighth of
++      the substep rate, 67.5 at 540); at most a quarter of the substep rate is used.
++   :type contactStiffness: float
++   :arg contactDamping: Contact damping ratio (default 10): 1 and above settles without bouncing.
++   :type contactDamping: float
++   :arg pushSpeed: Fastest speed at which overlapping objects are pushed apart, in m/s (default 3).
++   :type pushSpeed: float
++
+ .. function:: setSorConstant(sor)
+ 
+    .. note::
+diff --git a/release/scripts/startup/bl_ui/properties_game.py b/release/scripts/startup/bl_ui/properties_game.py
+index 6263bd4..234b81b 100644
+--- a/release/scripts/startup/bl_ui/properties_game.py
++++ b/release/scripts/startup/bl_ui/properties_game.py
+@@ -633,11 +633,19 @@ class SCENE_PT_game_physics(SceneButtonsPanel, Panel):
+                 sub.prop(gs, "physics_threads", text="Threads")
+ 
+                 col = split.column()
+-                col.label(text="Error Correction:")
+-                sub = col.column(align=True)
+-                sub.prop(gs, "erp_parameter", text="Joint ERP")
+-                sub.prop(gs, "erp2_parameter", text="Contact ERP")
+-                sub.prop(gs, "cfm_parameter", text="CFM")
++                if gs.physics_solver == 'SOLVER_SOFT_STEP':
++                    col.label(text="Soft Step:")
++                    sub = col.column(align=True)
++                    sub.prop(gs, "soft_step_rate", text="Substep Rate")
++                    sub.prop(gs, "contact_stiffness", text="Stiffness")
++                    sub.prop(gs, "contact_damping", text="Damping")
++                    sub.prop(gs, "contact_push_speed", text="Push-Out")
++                else:
++                    col.label(text="Error Correction:")
++                    sub = col.column(align=True)
++                    sub.prop(gs, "erp_parameter", text="Joint ERP")
++                    sub.prop(gs, "erp2_parameter", text="Contact ERP")
++                    sub.prop(gs, "cfm_parameter", text="CFM")
+ 
+                 col = layout.column()
+                 col.label(text="Collision:")
+diff --git a/source/blender/makesdna/DNA_scene_types.h b/source/blender/makesdna/DNA_scene_types.h
+index d5885b4..4f43ccf 100644
+--- a/source/blender/makesdna/DNA_scene_types.h
++++ b/source/blender/makesdna/DNA_scene_types.h
+@@ -961,6 +961,10 @@ typedef struct GameData {
+ 	short physicsThreads;		/* 0 = one per processor core; results never depend on it */
+ 	short bnflag;				/* GAME_BN_*: features that are switched off */
+ 	float erp, erp2, cfm;		/* solver error reduction (joints, contacts) and constraint force mixing */
++	/* Bullet NEXT Soft Step solver (solverType == GAME_SOLVER_SOFT_STEP); zero means the default */
++	float softStepRate;			/* substeps per second (540) */
++	float contactHertz, contactDampingRatio;	/* contact stiffness (Hz, 0: an eighth of the substep rate) and damping ratio (10) */
++	float contactPushSpeed;		/* fastest push-out of overlapping objects (3 m/s) */
+ 	int pad6;
+ } GameData;
+ 
+@@ -986,6 +990,7 @@ typedef struct GameData {
+ /* GameData.solverType (same values as UPBGE) */
+ #define GAME_SOLVER_SEQUENTIAL	0
+ #define GAME_SOLVER_NNCG		1
++#define GAME_SOLVER_SOFT_STEP	2	/* Bullet NEXT (F3c) */
+ 
+ /* GameData.bnflag: Bullet NEXT features switched off (all on by default) */
+ #define GAME_BN_NO_CCD				(1 << 0)
+diff --git a/source/blender/makesrna/intern/rna_scene.c b/source/blender/makesrna/intern/rna_scene.c
+index a64725f..4d2efc4 100644
+--- a/source/blender/makesrna/intern/rna_scene.c
++++ b/source/blender/makesrna/intern/rna_scene.c
+@@ -4831,6 +4831,8 @@ static void rna_def_scene_game_data(BlenderRNA *brna)
+ 	static EnumPropertyItem physics_solver_items[] = {
+ 		{GAME_SOLVER_SEQUENTIAL, "SOLVER_SEQUENTIAL", 0, "Sequential", "Sequential impulse solver, as in Blender 2.79b"},
+ 		{GAME_SOLVER_NNCG, "SOLVER_NNCG", 0, "NNCG", "Nonsmooth nonlinear conjugate gradient solver: stiffer stacks and chains"},
++		{GAME_SOLVER_SOFT_STEP, "SOLVER_SOFT_STEP", 0, "Soft Step",
++		 "Substepping solver with soft contacts: tall stacks, large mass ratios, exact bounces"},
+ 		{0, NULL, 0, NULL, NULL}
+ 	};
+ 
+@@ -5148,6 +5150,41 @@ static void rna_def_scene_game_data(BlenderRNA *brna)
+ 	                         "Constraint Force Mixing: above zero makes joints and contacts softer (Bullet NEXT)");
+ 	RNA_def_property_update(prop, NC_SCENE, NULL);
+ 
++	prop = RNA_def_property(srna, "soft_step_rate", PROP_FLOAT, PROP_NONE);
++	RNA_def_property_float_sdna(prop, NULL, "softStepRate");
++	RNA_def_property_range(prop, 0.0, 5000.0);
++	RNA_def_property_ui_range(prop, 0.0, 1000.0, 10, 0);
++	RNA_def_property_ui_text(prop, "Substep Rate",
++	                         "Soft Step substeps per second: more is stiffer and slower (0 uses 540; Bullet NEXT)");
++	RNA_def_property_update(prop, NC_SCENE, NULL);
++
++	prop = RNA_def_property(srna, "contact_stiffness", PROP_FLOAT, PROP_NONE);
++	RNA_def_property_float_sdna(prop, NULL, "contactHertz");
++	RNA_def_property_range(prop, 0.0, 1000.0);
++	RNA_def_property_ui_range(prop, 0.0, 240.0, 5, 0);
++	RNA_def_property_ui_text(prop, "Contact Stiffness",
++	                         "Soft Step contact stiffness, as a spring frequency in Hz; at most a quarter of the "
++	                         "substep rate is used (0 uses an eighth of it; Bullet NEXT)");
++	RNA_def_property_update(prop, NC_SCENE, NULL);
++
++	prop = RNA_def_property(srna, "contact_damping", PROP_FLOAT, PROP_NONE);
++	RNA_def_property_float_sdna(prop, NULL, "contactDampingRatio");
++	RNA_def_property_range(prop, 0.0, 100.0);
++	RNA_def_property_ui_range(prop, 0.0, 20.0, 10, 1);
++	RNA_def_property_ui_text(prop, "Contact Damping",
++	                         "Soft Step contact damping ratio, 1 and above settles without bouncing "
++	                         "(0 uses 10; Bullet NEXT)");
++	RNA_def_property_update(prop, NC_SCENE, NULL);
++
++	prop = RNA_def_property(srna, "contact_push_speed", PROP_FLOAT, PROP_VELOCITY);
++	RNA_def_property_float_sdna(prop, NULL, "contactPushSpeed");
++	RNA_def_property_range(prop, 0.0, 100.0);
++	RNA_def_property_ui_range(prop, 0.0, 10.0, 10, 2);
++	RNA_def_property_ui_text(prop, "Push-Out Speed",
++	                         "Soft Step: fastest speed at which overlapping objects are pushed apart "
++	                         "(0 uses 3 m/s; Bullet NEXT)");
++	RNA_def_property_update(prop, NC_SCENE, NULL);
++
+ 	prop = RNA_def_property(srna, "use_physics_ccd", PROP_BOOLEAN, PROP_NONE);
+ 	RNA_def_property_boolean_negative_sdna(prop, NULL, "bnflag", GAME_BN_NO_CCD);
+ 	RNA_def_property_ui_text(prop, "Continuous Collision",
+diff --git a/source/gameengine/Ketsji/KX_PyConstraintBinding.cpp b/source/gameengine/Ketsji/KX_PyConstraintBinding.cpp
+index d660ad2..80a9f44 100644
+--- a/source/gameengine/Ketsji/KX_PyConstraintBinding.cpp
++++ b/source/gameengine/Ketsji/KX_PyConstraintBinding.cpp
+@@ -123,7 +123,7 @@ PyDoc_STRVAR(gPySetUseEpa__doc__,
+ );
+ PyDoc_STRVAR(gPySetSolverType__doc__,
+ "setSolverType(int solverType)\n"
+-"Very experimental, not recommended"
++"Bullet NEXT: 1 sequential impulse (2.79b), 2 NNCG, 3 Soft Step"
+ );
+ PyDoc_STRVAR(gPySetERPNonContact__doc__,
+ "setERPNonContact(float erp)\n"
+@@ -137,6 +137,12 @@ PyDoc_STRVAR(gPySetCFM__doc__,
+ "setCFM(float cfm)\n"
+ "Bullet NEXT: constraint force mixing (0.0 - 10000.0)"
+ );
++PyDoc_STRVAR(gPySetSoftStepSettings__doc__,
++"setSoftStepSettings(float substepRate, float contactStiffness, float contactDamping, float pushSpeed)\n"
++"Bullet NEXT: the Soft Step solver's substeps per second, contact stiffness (Hz), contact damping\n"
++"ratio and push-out speed (m/s); 0 keeps a setting's default (540, an eighth\n"
++"of the substep rate, 10, 3)"
++);
+ 
+ PyDoc_STRVAR(gPyCreateConstraint__doc__,
+ "createConstraint(ob1,ob2,float restLength,float restitution,float damping)\n"
+@@ -417,6 +423,21 @@ static PyObject *gPySetERPContact(PyObject *self, PyObject *args, PyObject *kwds
+ 	Py_RETURN_NONE;
+ }
+ 
++static PyObject *gPySetSoftStepSettings(PyObject *self, PyObject *args, PyObject *kwds)
++{
++	float rate, hertz, damping, push;
++	if (!PyArg_ParseTuple(args, "ffff:setSoftStepSettings", &rate, &hertz, &damping, &push))
++		return NULL;
++	if (rate < 0.0f || hertz < 0.0f || damping < 0.0f || push < 0.0f) {
++		PyErr_SetString(PyExc_ValueError, "setSoftStepSettings(substepRate, contactStiffness, contactDamping, pushSpeed): "
++		                "expected floats of 0.0 or more");
++		return NULL;
++	}
++	if (PHY_GetActiveEnvironment())
++		PHY_GetActiveEnvironment()->SetSoftStepSettings(rate, hertz, damping, push);
++	Py_RETURN_NONE;
++}
++
+ static PyObject *gPySetCFM(PyObject *self, PyObject *args, PyObject *kwds)
+ {
+ 	float cfm;
+@@ -707,6 +728,8 @@ static struct PyMethodDef physicsconstraints_methods[] = {
+ 	 METH_VARARGS, (const char *)gPySetERPContact__doc__},
+ 	{"setCFM",(PyCFunction) gPySetCFM,
+ 	 METH_VARARGS, (const char *)gPySetCFM__doc__},
++	{"setSoftStepSettings",(PyCFunction) gPySetSoftStepSettings,
++	 METH_VARARGS, (const char *)gPySetSoftStepSettings__doc__},
+ 
+ 
+ 	{"createConstraint",(PyCFunction) gPyCreateConstraint,
+diff --git a/source/gameengine/Physics/Bullet/CcdPhysicsEnvironment.cpp b/source/gameengine/Physics/Bullet/CcdPhysicsEnvironment.cpp
+index 187faf5..e106f48 100644
+--- a/source/gameengine/Physics/Bullet/CcdPhysicsEnvironment.cpp
++++ b/source/gameengine/Physics/Bullet/CcdPhysicsEnvironment.cpp
+@@ -39,6 +39,7 @@ subject to the following restrictions:
+ #include "BulletDynamics/Dynamics/btDiscreteDynamicsWorldMt.h"
+ #include "BulletDynamics/ConstraintSolver/btSequentialImpulseConstraintSolverMt.h"
+ #include "BulletDynamics/ConstraintSolver/btNNCGConstraintSolver.h"
++#include "BulletDynamics/ConstraintSolver/btSoftStepConstraintSolver.h"
+ #include "BulletCollision/CollisionDispatch/btCollisionDispatcherMt.h"
+ #include "BulletSoftBody/btSoftRigidDynamicsWorldMt.h"
+ #include "LinearMath/btThreads.h"
+@@ -589,21 +590,30 @@ void CcdPhysicsEnvironment::BN_ConfigureBody(CcdPhysicsController *ctrl)
+ 	}
+ }
+ 
+-/* Bullet NEXT (C1.11): solverType 1 = sequential impulse (2.79b), 2 = NNCG. Large islands use the
+- * threaded sequential impulse solver; small islands run one solver per thread. */
++/* Bullet NEXT (C1.11): solverType 1 = sequential impulse (2.79b), 2 = NNCG, 3 = Soft Step (F3c,
++ * C3.8). Large islands use the threaded sequential impulse solver; small islands run one solver
++ * per thread. Soft Step solves every island with the per-thread solvers (no large-island solver),
++ * so its results never depend on the thread count either. */
+ void CcdPhysicsEnvironment::BN_CreateSolvers(int solverType)
+ {
+ 	const int numSolvers = btMax(1, btGetTaskScheduler()->getNumThreads());
+ 	btConstraintSolver **solvers = new btConstraintSolver*[numSolvers];
++	m_bnSoftStepSolvers.clear();
+ 	for (int i = 0; i < numSolvers; ++i) {
+-		if (solverType == 2)
++		if (solverType == 3) {
++			btSoftStepConstraintSolver *soft = new btSoftStepConstraintSolver();
++			soft->setSettings(m_bnSoftStep);
++			m_bnSoftStepSolvers.push_back(soft);
++			solvers[i] = soft;
++		}
++		else if (solverType == 2)
+ 			solvers[i] = new btNNCGConstraintSolver();
+ 		else
+ 			solvers[i] = new btSequentialImpulseConstraintSolver();
+ 	}
+ 	m_bnSolverPool = new btConstraintSolverPoolMt(solvers, numSolvers);
+ 	delete[] solvers;
+-	m_solver = (solverType == 2) ? NULL : new btSequentialImpulseConstraintSolverMt();
++	m_solver = (solverType == 1) ? new btSequentialImpulseConstraintSolverMt() : NULL;
+ }
+ #endif
+ 
+@@ -1159,6 +1169,25 @@ void		CcdPhysicsEnvironment::SetCFM(float cfm)
+ #endif
+ }
+ 
++/* Bullet NEXT (F3c, C3.8): the Soft Step solver's settings; zero or less keeps a setting's default
++ * (substeps per second 540, contact stiffness an eighth of the substep rate, damping ratio 10,
++ * push-out 3 m/s). They apply to the solvers now in use and to any made later. */
++void		CcdPhysicsEnvironment::SetSoftStepSettings(float substepRate, float contactHertz, float contactDampingRatio, float pushSpeed)
++{
++#ifdef BN_NEXT_BACKEND
++	btSoftStepSettings s;
++	if (substepRate > 0.0f) s.m_substepRate = substepRate;
++	if (contactHertz > 0.0f) s.m_contactHertz = contactHertz;
++	if (contactDampingRatio > 0.0f) s.m_contactDampingRatio = contactDampingRatio;
++	if (pushSpeed > 0.0f) s.m_contactPushMaxVelocity = pushSpeed;
++	m_bnSoftStep = s;
++	for (int i = 0; i < m_bnSoftStepSolvers.size(); ++i)
++		m_bnSoftStepSolvers[i]->setSettings(s);
++#else
++	(void)substepRate; (void)contactHertz; (void)contactDampingRatio; (void)pushSpeed;
++#endif
++}
++
+ PHY_IGraphicController *CcdPhysicsEnvironment::CreateGraphicController(PHY_IMotionState *motionState)
+ {
+ 	return new CcdGraphicController(this, motionState);
+@@ -1167,8 +1196,9 @@ PHY_IGraphicController *CcdPhysicsEnvironment::CreateGraphicController(PHY_IMoti
+ void		CcdPhysicsEnvironment::SetSolverType(int solverType)
+ {
+ #ifdef BN_NEXT_BACKEND
+-	/* Bullet NEXT: 1 = sequential impulse (the 2.79b solver), 2 = NNCG; other values are ignored. */
+-	if ((solverType == 1 || solverType == 2) && solverType != m_solverType && m_dynamicsWorld) {
++	/* Bullet NEXT: 1 = sequential impulse (the 2.79b solver), 2 = NNCG, 3 = Soft Step; other values
++	 * are ignored. */
++	if ((solverType == 1 || solverType == 2 || solverType == 3) && solverType != m_solverType && m_dynamicsWorld) {
+ 		btConstraintSolverPoolMt *oldPool = m_bnSolverPool;
+ 		btConstraintSolver *oldSolver = m_solver;
+ 		BN_CreateSolvers(solverType);
+@@ -3371,7 +3401,8 @@ CcdPhysicsEnvironment *CcdPhysicsEnvironment::Create(Scene *blenderscene, bool v
+ 	/* Bullet NEXT (C1.11): the scene's solver settings (UPBGE names and layout where they exist) */
+ 	const GameData &gm = blenderscene->gm;
+ 	ccdPhysEnv->m_bnFlag = gm.bnflag;
+-	ccdPhysEnv->SetSolverType(gm.solverType == GAME_SOLVER_NNCG ? 2 : 1);
++	ccdPhysEnv->SetSoftStepSettings(gm.softStepRate, gm.contactHertz, gm.contactDampingRatio, gm.contactPushSpeed);
++	ccdPhysEnv->SetSolverType(gm.solverType == GAME_SOLVER_SOFT_STEP ? 3 : gm.solverType == GAME_SOLVER_NNCG ? 2 : 1);
+ 	if (gm.solverIterations > 0)
+ 		ccdPhysEnv->SetNumIterations(gm.solverIterations);
+ 	ccdPhysEnv->SetERPNonContact(gm.erp);
+diff --git a/source/gameengine/Physics/Bullet/CcdPhysicsEnvironment.h b/source/gameengine/Physics/Bullet/CcdPhysicsEnvironment.h
+index 415aa81..8c79812 100644
+--- a/source/gameengine/Physics/Bullet/CcdPhysicsEnvironment.h
++++ b/source/gameengine/Physics/Bullet/CcdPhysicsEnvironment.h
+@@ -61,6 +61,7 @@ class CcdShapeConstructionInfo;
+  * Bullet NEXT copy (threaded world, F1 collision features, working 2.79b setters); without it this
+  * is the frozen 2.79b behaviour, built against the renamed legacy Bullet. */
+ #ifdef BN_NEXT_BACKEND
++#include "BulletDynamics/ConstraintSolver/btSoftStepConstraintSolver.h"  /* btSoftStepSettings (F3c) */
+ class btSoftRigidDynamicsWorldMt;
+ class btConstraintSolverPoolMt;
+ typedef btSoftRigidDynamicsWorldMt BN_SoftRigidWorld;
+@@ -143,6 +144,7 @@ protected:
+ 		virtual void		SetERPNonContact(float erp);
+ 		virtual void		SetERPContact(float erp2);
+ 		virtual void		SetCFM(float cfm);
++		virtual void		SetSoftStepSettings(float substepRate, float contactHertz, float contactDampingRatio, float pushSpeed);
+ 		virtual class PHY_IGraphicController *CreateGraphicController(class PHY_IMotionState *motionState);
+ 
+ 		virtual int			GetNumTimeSubSteps()
+@@ -348,6 +350,9 @@ protected:
+ 		float	m_bnLinearAirDamping;
+ 		void	BN_ConfigureBody(CcdPhysicsController *ctrl);
+ 		void	BN_CreateSolvers(int solverType);
++		/* F3c (C3.8): the Soft Step solver's settings, and the solvers made with them */
++		btSoftStepSettings	m_bnSoftStep;
++		btAlignedObjectArray<class btSoftStepConstraintSolver *>	m_bnSoftStepSolvers;
+ #endif
+ 
+ 		class btOverlappingPairCache* m_ownPairCache;
+diff --git a/source/gameengine/Physics/common/PHY_IPhysicsEnvironment.h b/source/gameengine/Physics/common/PHY_IPhysicsEnvironment.h
+index 43695d2..4dfdae5 100644
+--- a/source/gameengine/Physics/common/PHY_IPhysicsEnvironment.h
++++ b/source/gameengine/Physics/common/PHY_IPhysicsEnvironment.h
+@@ -162,6 +162,8 @@ class PHY_IPhysicsEnvironment
+ 		virtual void		SetERPNonContact(float erp) {}
+ 		virtual void		SetERPContact(float erp2) {}
+ 		virtual void		SetCFM(float cfm) {}
++		/* Bullet NEXT (F3c, C3.8): Soft Step solver settings; zero or less keeps a default */
++		virtual void		SetSoftStepSettings(float substepRate, float contactHertz, float contactDampingRatio, float pushSpeed) {}
+ 
+ 		virtual	void		SetGravity(float x,float y,float z)=0;
+ 		virtual	void		GetGravity(MT_Vector3& grav) = 0;

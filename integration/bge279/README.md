@@ -1,8 +1,10 @@
-# Bullet NEXT in the 2.79b game engine (F1, C1.11 and C1.12)
+# Bullet NEXT in the 2.79b game engine (F1: C1.11, C1.12; F3c: C3.8)
 
-Two patches wire Bullet NEXT into the engine repo (github.com/ayhank-tr/yofrankie-bge279):
-`c1.11-bullet-next-engine.patch`, then `c1.12-contact-points.patch`. They are made against that
-repo's working copy of 26 Oct 2026 and are applied once, when F1 passes its gate.
+Three patches wire Bullet NEXT into the engine repo (github.com/ayhank-tr/yofrankie-bge279), in
+this order: `c1.11-bullet-next-engine.patch`, `c1.12-contact-points.patch`, then
+`c3.8-soft-step-settings.patch`. They are made against that repo's working copy of 26 Oct 2026
+(C3.8 on top of the other two) and are applied when you give the go; until then nothing is
+written into the engine repo.
 
 ## What it changes
 
@@ -24,13 +26,22 @@ repo's working copy of 26 Oct 2026 and are applied once, when F1 passes its gate
   `setERPContact`, `setCFM`.
 - **Contact list (C1.12).** Collision callbacks may take a 4th argument with every contact
   point of the pair, with UPBGE's attribute names. Old 1- and 3-argument callbacks are unchanged.
+- **Soft Step solver (C3.8).** The scene's Solver gets a third entry, "Soft Step"
+  (`GAME_SOLVER_SOFT_STEP`), with its settings in the same panel: substep rate (540 per second),
+  contact stiffness (an eighth of the substep rate), contact damping ratio (10) and push-out speed (3 m/s); 0 keeps a
+  default. Python: `bge.constraints.setSolverType(3)` and
+  `bge.constraints.setSoftStepSettings(substepRate, contactStiffness, contactDamping, pushSpeed)`.
+  Soft Step solves every island on the per-thread solvers, so results stay the same for any
+  thread count. Old files keep their solver.
 
 ## Checked here (Linux, GCC 13)
 
 - Both physics copies compile and link together without clashes; every Bullet name they use
   resolves in the matching library.
 - The changed converter, Ketsji, RNA, DNA, kernel and loader files compile; makesdna accepts
-  the new scene fields.
+  the new scene fields (C1.11, and again with C3.8's).
+- C3.8: the physics module compiles with and without `BN_NEXT_BACKEND`, the Python binding and
+  the scene RNA compile, the panel script parses, and makesdna builds the DNA with the new fields.
 - Blender's rigid body module and the C API callers compile against the legacy backend.
 
 The full Windows build and the game tests run on the PC at the end of the project.
