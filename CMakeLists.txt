@@ -65,12 +65,65 @@ endif()
 if(BN_BUILD_NEXT)
   bn_add_bullet_lib(bn_bullet_next "${CMAKE_CURRENT_SOURCE_DIR}/next")
   # F1 C1.9: thread-safe build with Bullet's own task scheduler (no OpenMP/TBB dependency).
-  find_package(Threads REQUIRED)
   target_compile_definitions(bn_bullet_next PUBLIC BT_THREADSAFE=1)
-  target_link_libraries(bn_bullet_next PUBLIC Threads::Threads)
+  if(NOT EMSCRIPTEN)  # the browser build has one thread
+    find_package(Threads REQUIRED)
+    target_link_libraries(bn_bullet_next PUBLIC Threads::Threads)
+  endif()
+  if(EMSCRIPTEN)
+    # Browser build (FL, CL.10): Bullet NEXT's SSE code through WebAssembly SIMD, as on the PC.
+    # PUBLIC, so every file that includes Bullet NEXT sees the same btVector3.
+    target_compile_options(bn_bullet_next PUBLIC -msimd128 -msse2)
+  endif()
+endif()
+# Portable float math (FL, CL.10): Bullet NEXT's sin, cos, atan2, exp, log and pow come from its
+# own copy of musl's math, so a scene gives the same results on Windows, Linux and in the browser.
+option(BN_PORTABLE_MATH "Bullet NEXT: the same float math on every system (musl copy)" ON)
+if(BN_BUILD_NEXT AND BN_PORTABLE_MATH)
+  enable_language(C)
+  file(GLOB _bn_musl "${CMAKE_CURRENT_SOURCE_DIR}/third_party/musl_math/*.c")
+  add_library(bn_musl_math STATIC ${_bn_musl})
+  set_target_properties(bn_musl_math PROPERTIES C_STANDARD 99 C_EXTENSIONS ON)
+  target_compile_definitions(bn_bullet_next PUBLIC BN_PORTABLE_MATH)
+  target_link_libraries(bn_bullet_next PUBLIC bn_musl_math)
+endif()
+if(BN_BUILD_NEXT)
+  # Bullet's .bullet file reader (upstream Extras/Serialize, same pinned commit) on Bullet NEXT,
+  # for programs that load serialized collision shapes (HARFANG's mesh colliders, FL).
+  set(_ser "${CMAKE_CURRENT_SOURCE_DIR}/third_party/bullet3_master/Extras/Serialize")
+  add_library(bn_bullet_next_serialize STATIC
+    ${_ser}/BulletFileLoader/bChunk.cpp ${_ser}/BulletFileLoader/bDNA.cpp ${_ser}/BulletFileLoader/bFile.cpp
+    ${_ser}/BulletFileLoader/btBulletFile.cpp
+    ${_ser}/BulletWorldImporter/btBulletWorldImporter.cpp ${_ser}/BulletWorldImporter/btWorldImporter.cpp
+    ${_ser}/BulletWorldImporter/btMultiBodyWorldImporter.cpp)
+  target_include_directories(bn_bullet_next_serialize PUBLIC "${CMAKE_CURRENT_SOURCE_DIR}/third_party/bullet3_master/Extras")
+  target_link_libraries(bn_bullet_next_serialize PUBLIC bn_bullet_next)
+endif()
+# Double precision (FL, host profile blender53-rb): Blender 5.3 builds its Bullet copy with
+# BT_USE_DOUBLE_PRECISION, so Bullet NEXT's place in Blender's rigid body world is double too.
+option(BN_BUILD_DOUBLE "Build Blender 5.3's Bullet copy and Bullet NEXT in double precision" ${_bn_dev})
+if(BN_BUILD_DOUBLE)
+  bn_add_bullet_lib(bn_bullet_blender53 "${CMAKE_CURRENT_SOURCE_DIR}/third_party/blender53/bullet2")
+  target_compile_definitions(bn_bullet_blender53 PUBLIC BT_USE_DOUBLE_PRECISION)
+  if(BN_BUILD_NEXT)
+    bn_add_bullet_lib(bn_bullet_nextd "${CMAKE_CURRENT_SOURCE_DIR}/next")
+    target_compile_definitions(bn_bullet_nextd PUBLIC BT_USE_DOUBLE_PRECISION BT_THREADSAFE=1)
+    target_link_libraries(bn_bullet_nextd PUBLIC Threads::Threads)
+  endif()
 endif()
 if(BN_BUILD_UPSTREAM)
   bn_add_bullet_lib(bn_bullet_upstream "${CMAKE_CURRENT_SOURCE_DIR}/third_party/bullet3_master")
+endif()
+
+# The Lab (FL): scene files, the Lab engines and tools. On by default when Bullet NEXT is built on
+# its own; a host that wants it (the HARFANG Lab build) turns it on, the BGE engine leaves it off.
+if(BN_EMBEDDED)
+  option(BN_BUILD_LAB "Build the Lab: scene files, Lab engines (Jolt included) and tools" OFF)
+else()
+  option(BN_BUILD_LAB "Build the Lab: scene files, Lab engines (Jolt included) and tools" ON)
+endif()
+if(BN_BUILD_LAB)
+  add_subdirectory(lab)
 endif()
 
 if(BN_BUILD_HARNESS AND EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/harness/CMakeLists.txt")

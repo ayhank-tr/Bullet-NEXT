@@ -1,61 +1,34 @@
-# Bullet NEXT golden harness (F0).
-# The same harness sources are built against three Bullet copies:
-#   orig   - Blender 2.79b's Bullet 2.84, unrenamed (fidelity reference)
-#   legacy - the frozen, renamed backend (sources renamed by tools/rename_legacy.py)
-#   next   - Bullet NEXT (upstream master base)
-find_package(Python3 REQUIRED COMPONENTS Interpreter)
-
-set(BN_HARNESS_SRC
-  ${CMAKE_CURRENT_SOURCE_DIR}/src/bn_world.cpp
-  ${CMAKE_CURRENT_SOURCE_DIR}/src/bn_record.cpp
-  ${CMAKE_CURRENT_SOURCE_DIR}/src/bn_scenes.cpp
-  ${CMAKE_CURRENT_SOURCE_DIR}/src/bn_main.cpp)
-set(BN_HARNESS_HDR
-  ${CMAKE_CURRENT_SOURCE_DIR}/src/bn_common.h
-  ${CMAKE_CURRENT_SOURCE_DIR}/src/bn_world.h
-  ${CMAKE_CURRENT_SOURCE_DIR}/src/bn_record.h
-  ${CMAKE_CURRENT_SOURCE_DIR}/src/bn_scenes.h)
-set(BN_RENAME ${PROJECT_SOURCE_DIR}/tools/rename_legacy.py)
-
-# Renamed copy of the harness for the legacy backend.
-set(BN_GEN ${CMAKE_CURRENT_BINARY_DIR}/gen_legacy)
-set(BN_GEN_SRC "")
-foreach(f ${BN_HARNESS_SRC} ${BN_HARNESS_HDR})
-  get_filename_component(n ${f} NAME)
-  list(APPEND BN_GEN_SRC ${BN_GEN}/${n})
-endforeach()
-add_custom_command(
-  OUTPUT ${BN_GEN_SRC}
-  COMMAND ${Python3_EXECUTABLE} ${BN_RENAME} files ${BN_GEN} ${BN_HARNESS_SRC} ${BN_HARNESS_HDR}
-  DEPENDS ${BN_HARNESS_SRC} ${BN_HARNESS_HDR} ${BN_RENAME} ${PROJECT_SOURCE_DIR}/tools/legacy_extra_symbols.txt
-  COMMENT "Renaming harness sources for the legacy backend")
-list(FILTER BN_GEN_SRC INCLUDE REGEX ".*\\.cpp$")
-
-function(bn_harness target lib backend)
-  add_executable(${target} ${ARGN})
-  target_link_libraries(${target} PRIVATE ${lib})
-  target_compile_definitions(${target} PRIVATE BN_BACKEND_NAME="${backend}")
+# Bullet NEXT golden harness (F0; scene files and Lab engines since FL).
+# One runner per backend: harness/src/bn_main.cpp linked with that backend's Lab engine library
+# (lab/CMakeLists.txt), which holds the World, the recorder and the scene-file loader.
+function(bn_harness target tag main)
+  if(NOT TARGET bnl_engine_${tag})
+    return()
+  endif()
+  add_executable(${target} ${main})
+  target_link_libraries(${target} PRIVATE bnl_engine_${tag})
+  get_target_property(defs bnl_engine_${tag} BNL_DEFS)
+  target_compile_definitions(${target} PRIVATE ${defs})
+  if(tag STREQUAL "legacy")
+    add_dependencies(${target} bnl_gen_legacy)
+  endif()
 endfunction()
 
-if(TARGET bn_bullet284_orig)
-  bn_harness(bn_harness_orig bn_bullet284_orig orig ${BN_HARNESS_SRC})
-endif()
-if(TARGET bn_bullet_legacy)
-  bn_harness(bn_harness_legacy bn_bullet_legacy legacy ${BN_GEN_SRC})
-endif()
-if(TARGET bn_bullet_next)
-  bn_harness(bn_harness_next bn_bullet_next next ${BN_HARNESS_SRC})
-  # Bullet NEXT with the F1 features switched on (what BGE NEXT will use).
-  bn_harness(bn_harness_nextf bn_bullet_next nextf ${BN_HARNESS_SRC})
-  target_compile_definitions(bn_harness_nextf PRIVATE BN_NEXT_FEATURES=1)
-endif()
-if(TARGET bn_bullet_upstream)
-  bn_harness(bn_harness_upstream bn_bullet_upstream upstream ${BN_HARNESS_SRC})
-endif()
+bn_harness(bn_harness_orig orig ${CMAKE_CURRENT_SOURCE_DIR}/src/bn_main.cpp)
+set_source_files_properties(${BNL_GEN_LEGACY}/bn_main.cpp PROPERTIES GENERATED TRUE)  # made in lab/
+bn_harness(bn_harness_legacy legacy ${BNL_GEN_LEGACY}/bn_main.cpp)
+bn_harness(bn_harness_next next ${CMAKE_CURRENT_SOURCE_DIR}/src/bn_main.cpp)
+bn_harness(bn_harness_nextf nextf ${CMAKE_CURRENT_SOURCE_DIR}/src/bn_main.cpp)
+bn_harness(bn_harness_upstream upstream ${CMAKE_CURRENT_SOURCE_DIR}/src/bn_main.cpp)
+bn_harness(bn_harness_blender53 blender53 ${CMAKE_CURRENT_SOURCE_DIR}/src/bn_main.cpp)
+bn_harness(bn_harness_nextd nextd ${CMAKE_CURRENT_SOURCE_DIR}/src/bn_main.cpp)
 
 add_executable(bn_compare ${CMAKE_CURRENT_SOURCE_DIR}/compare/bn_compare.cpp)
 
 # T0.2 symbol isolation: one program that links the legacy and next libraries together.
+find_package(Python3 REQUIRED COMPONENTS Interpreter)
+set(BN_RENAME ${PROJECT_SOURCE_DIR}/tools/rename_legacy.py)
+set(BN_GEN ${CMAKE_CURRENT_BINARY_DIR}/gen_symcheck)
 if(TARGET bn_bullet_legacy AND TARGET bn_bullet_next)
   add_custom_command(
     OUTPUT ${BN_GEN}/symcheck_world_legacy.cpp
@@ -71,4 +44,10 @@ if(TARGET bn_bullet_legacy AND TARGET bn_bullet_next)
   add_executable(bn_symcheck ${CMAKE_CURRENT_SOURCE_DIR}/symcheck/symcheck_main.cpp
     $<TARGET_OBJECTS:bn_symcheck_legacy> $<TARGET_OBJECTS:bn_symcheck_next>)
   target_link_libraries(bn_symcheck PRIVATE bn_bullet_legacy bn_bullet_next)
+endif()
+
+# One-time export of the F0/F1 C++ scenes to scene files (CL.5), against the 2.84 copy.
+if(TARGET bn_bullet284_orig AND EXISTS ${PROJECT_SOURCE_DIR}/lab/tools/bnl_export_f0.cpp)
+  add_executable(bnl_export_f0 ${PROJECT_SOURCE_DIR}/lab/tools/bnl_export_f0.cpp)
+  target_link_libraries(bnl_export_f0 PRIVATE bn_bullet284_orig bnl_core)
 endif()

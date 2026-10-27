@@ -14,8 +14,13 @@
 #include "BulletCollision/CollisionDispatch/btGhostObject.h"
 #include "BulletDynamics/Character/btKinematicCharacterController.h"
 #include "BulletCollision/NarrowPhaseCollision/btRaycastCallback.h"
-#if BN_NEXT_FEATURES
+#include "LinearMath/btConvexHullComputer.h"
+#if BN_NEXT_FEATURES || BN_NEXT_LIB
 #include "BulletDynamics/Dynamics/btNextFeatures.h"
+#include "BulletCollision/CollisionDispatch/btConvexConcaveCollisionAlgorithm.h"
+#include "BulletDynamics/ConstraintSolver/btNNCGConstraintSolver.h"
+#endif
+#if BN_NEXT_FEATURES
 #include "BulletDynamics/Dynamics/btDiscreteDynamicsWorldMt.h"
 #include "BulletDynamics/ConstraintSolver/btSequentialImpulseConstraintSolverMt.h"
 #include "BulletCollision/CollisionDispatch/btCollisionDispatcherMt.h"
@@ -39,7 +44,15 @@
 #define BN_NEW_API 0
 #endif
 
-namespace bn {
+// Each backend's copy of the harness lives in its own inline namespace (bn::legacy, bn::next...),
+// so several backends can share one program (the Lab engines, CL.2) without clashing names.
+#ifndef BN_TAG
+#define BN_TAG unnamed_backend
+#endif
+#define BN_NAMESPACE_BEGIN namespace bn { inline namespace BN_TAG {
+#define BN_NAMESPACE_END } }
+
+BN_NAMESPACE_BEGIN
 
 typedef std::uint64_t u64;
 
@@ -54,6 +67,6 @@ struct Hash64 {
   void i(int v) { bytes(&v, sizeof(v)); }
 };
 
-}  // namespace bn
+BN_NAMESPACE_END  // namespace bn
 
 #endif
