@@ -36,6 +36,10 @@ def main():
     shutil.rmtree(work, ignore_errors=True)
     shutil.copytree(os.path.dirname(exe), work, symlinks=False)
     shutil.copytree(os.path.join(source, "harfang", "tests", "data"), os.path.join(work, "data"), dirs_exist_ok=True)
+    # the video test loads its plugin from ./data; Visual Studio builds it in data/<config>
+    for plugin in glob.glob(os.path.join(tests, "**", "DummyVideoStream.*"), recursive=True):
+        if os.path.splitext(plugin)[1] in (".dll", ".so", ".dylib"):
+            shutil.copy(plugin, os.path.join(work, "data"))
     pattern = "*.dll" if win else "lib*.so*"
     for lib in glob.glob(os.path.join(build, "**", pattern), recursive=True):
         if os.path.commonpath([lib, work]) != work and os.path.isfile(lib):
