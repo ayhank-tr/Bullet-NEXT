@@ -31,7 +31,15 @@
     "mass_ratio_1_to_100_stack": "stays standing for 10 s",
     "joint_drift_vs_pgs": "no worse",
     "energy_gain_max_pct_10s_frictionless_pendulum": 1.0,
-    "softstep_vs_pgs_time_at_equal_error_max_ratio": 1.5
+    "softstep_vs_pgs_time_at_equal_error_max_ratio": 1.5,
+    "mass_ratio_max_moved_m": 0.05,
+    "mass_ratio_max_tilt_rad": 0.05,
+    "joint_drift_noise_m": 0.0001,
+    "joint_drift_noise_rad": 0.0001,
+    "restitution_max_error": 0.05,
+    "bounce_height_max_error_pct": 10.0,
+    "softstep_rest_penetration_max_m": 0.0025,
+    "b31_revision": "2026-10-27: resting depth held to a bound (soft contacts sink under load by design); cost compared where both solvers do the same job (joint drift, stacks standing)"
   },
   "tolerance_mode_defaults": {
     "pos_m": 0.0001,

@@ -7,7 +7,8 @@
 | Bullet upstream | bullet3 `d3afe76` | zlib | Bullet NEXT base | Keep copyright headers; mark modified files |
 | Blender 2.79b game engine sources | v2.79b | GPL-2.0-or-later | Reference for the world factory | Harness code that mirrors BGE logic is GPL-2.0-or-later |
 | UPBGE | master `63bd081` (26 Oct 2026) | GPL-2.0-or-later | Reference for BGE wiring: setting and Python names only, no code copied | GPL-compatible |
-| Box2D v3 / Box3D (planned, F3c) | to be pinned | MIT | Soft Step design and code reference | Keep MIT notice in any copied file |
+| Box2D v3 (F3c) | v3.2.0 + 2, `a292912` (20 Oct 2026), reference only | MIT | Soft Step design: substeps, soft constraint coefficients (`b2MakeSoft`), relax and restitution passes; re-implemented on Bullet's data structures, no file copied | Credited in `btSoftStepConstraintSolver.cpp` |
+| Rapier ideas (F3c) | none | Apache-2.0 | Rebuilding joints every substep: re-implemented with Bullet's own joints, no code copied | None |
 | Jolt Physics | v5.6.0 (`third_party/jolt`, FL) | MIT | Lab engine, the yardstick; later the character controller port | Keep MIT notice (`third_party/jolt/LICENSE`) |
 | Project Chrono `cbt` copy (F1 T1.7) | main `da80252` (25 Oct 2026) | BSD-3-Clause; Bullet parts zlib | Build target for the collision changes (`integration/chrono/`) | Keep notices; our patch files are zlib |
 | Jolt Physics ideas (F1) | none | MIT | Flat-region rule, approach-velocity removal at time of impact: re-implemented, no code copied | None |

@@ -24,7 +24,7 @@ jobs:
       - name: Every scene, every engine, one thread
         run: ./build/lab/bnl_run --threads 0 | tee run-linux.txt
       - name: Same results as the reference
-        run: python3 lab/tools/compare_hashes.py run-linux.txt --require next,nextf,jolt
+        run: python3 lab/tools/compare_hashes.py run-linux.txt --require next,nextf,nexts,jolt
       - name: Random collision pairs
         run: ./build/lab/bnl_fuzz --pairs 20000
       - uses: actions/upload-artifact@v4
@@ -47,7 +47,7 @@ jobs:
       # Same bits on Windows as on Linux is Bullet NEXT's goal; this step says where it is not yet.
       - name: Same results as Linux
         continue-on-error: true
-        run: python lab/tools/compare_hashes.py run-windows.txt --require next,nextf,jolt
+        run: python lab/tools/compare_hashes.py run-windows.txt --require next,nextf,nexts,jolt
       - name: Random collision pairs
         run: ./build/lab/Release/bnl_fuzz.exe --pairs 20000
       - uses: actions/upload-artifact@v4
@@ -93,7 +93,7 @@ jobs:
       - name: Every scene, every engine (WebAssembly, Node)
         run: node build-web/lab/bnl_run.js --threads 0 | tee run-web.txt
       - name: Same results as the PC
-        run: python3 lab/tools/compare_hashes.py run-web.txt --require next,nextf,jolt
+        run: python3 lab/tools/compare_hashes.py run-web.txt --require next,nextf,nexts,jolt
       - uses: actions/upload-artifact@v4
         with:
           name: run-web

@@ -4,21 +4,22 @@ The physics library of BGE NEXT: a frozen copy of the Bullet that Blender 2.79b 
 
 - Plan: "Bullet NEXT — Master Plan" (Claude doc).
 - Pinned sources: `MANIFEST.md`.
-- F0 results: `docs/F0_GATE_REPORT.md`; F1 results: `docs/F1_GATE_REPORT.md`; FL (the Lab) results: `docs/FL_GATE_REPORT.md`.
+- F0 results: `docs/F0_GATE_REPORT.md`; F1 results: `docs/F1_GATE_REPORT.md`; FL (the Lab) results: `docs/FL_GATE_REPORT.md`; F3c (Soft Step) results: `docs/F3C_GATE_REPORT.md`.
 - Game engine wiring (2.79b): `integration/bge279/`. Chrono's Bullet copy: `integration/chrono/`. HARFANG 3D: `integration/harfang/`.
 
 ## The Lab (`lab/`)
 
 One place to test Bullet NEXT: scenes written once as files (`lab/scenes`, JSON), run on every
 engine through one interface (`lab/core/bnl_engine.h`): legacy Bullet 2.84, Bullet NEXT with and
-without its features, Jolt and Chrono, in two host profiles (BGE 2.79b and Blender 5.3 rigid
-bodies). Any run can be recorded and played back. HARFANG 3D hosts it: the side-by-side viewer
+without its features, Bullet NEXT with the Soft Step solver (`nexts`), Jolt and Chrono, in two
+host profiles (BGE 2.79b and Blender 5.3 rigid bodies). Any run can be recorded and played back. HARFANG 3D hosts it: the side-by-side viewer
 (`lab/viewer`), Python scripting, and a browser build of the viewer (`lab/web`).
 
 ```
 ./build/lab/bnl_run --threads 0                  # every scene on every engine, final hashes
 ./build/lab/bnl_fuzz --pairs 100000              # random collision pairs (legacy, next, nextf)
 python3 lab/tools/compare_hashes.py run.txt      # same results as lab/scenes/native_hashes.txt?
+./build/lab/bnl_run --engines nextf,nexts --scene stack_20 --metrics m.jsonl   # penetration, jitter, drift, energy
 python3 tools/fetch_harfang.py ../hg             # HARFANG 3.2.7 with the Lab patch
 ```
 
@@ -29,10 +30,13 @@ cmake -S . -B build -G Ninja
 ninja -C build
 python3 tools/run_f0_gate.py build gate_f0
 python3 tools/run_f1_gate.py build gate_f1 gate_f1/chrono_results.json
+python3 tools/run_f3c_gate.py --build build --out gate_f3c
 ```
 
 `BN_THREADS=<n>` runs the harness on the threaded world (as BGE NEXT does); `BN_FEATURES=<mask>`
-keeps only some F1 features (benchmark B1.2). Inside another CMake project (the game engine)
+keeps only some F1 features (benchmark B1.2). A scene file's `"solver": "soft_step"` (with
+`solver_substep_rate`, `contact_hertz` and the other keys in `lab/core/bnl_scene.cpp`) runs it on
+the Soft Step solver. Inside another CMake project (the game engine)
 only the two backends are built.
 
 C++14, strict floating point; Bullet NEXT's float math comes from its own copy of musl

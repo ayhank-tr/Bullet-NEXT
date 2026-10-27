@@ -42,9 +42,9 @@ jobs:
       - name: HARFANG unit tests (audio may fail; the runner has no sound device)
         run: python3 bullet-next/tools/run_harfang_tests.py build-hg hg/harfang
       - name: Every scene in HARFANG (Python, headless)
-        run: PYTHONPATH=build-hg/languages/hg_python BN_THREADS=0 python3 bullet-next/lab/harfang/lab_headless.py --engines legacy,next,nextf,jolt --out headless.json
+        run: PYTHONPATH=build-hg/languages/hg_python BN_THREADS=0 python3 bullet-next/lab/harfang/lab_headless.py --engines legacy,next,nextf,nexts,jolt --out headless.json
       - name: Same results as the Lab
-        run: python3 bullet-next/lab/tools/compare_hashes.py headless.json --require legacy,next,nextf,jolt
+        run: python3 bullet-next/lab/tools/compare_hashes.py headless.json --require legacy,next,nextf,nexts,jolt
       - name: Viewer draws (Xvfb, 120 frames)
         run: xvfb-run -s "-screen 0 1600x900x24" build-hg/harfang/bnl_viewer --frames 120
       - name: Viewer shaders for WebGL
