@@ -17,6 +17,14 @@
     "quality_vs_F0": "every scene except tunnel_100 and projectile (legacy passes their walls): mean of 5 gravity variants (+0.0005*k m/s2); mean penetration and max joint drift <= legacy x 1.10 + 1 mm; energy gain <= legacy gain + 1 % of start energy + 0.5 J",
     "thread_scaling_min_speedup_8_threads_1000_body_pile": 2.5
   },
+  "FL": {
+    "host_match": "every scene run headless in HARFANG reaches the Lab's final hash, legacy and Bullet NEXT (at least the 16 F0 scenes)",
+    "host_overhead_max_pct": 10,
+    "browser_match": "the browser build reaches the native one-thread final hash on every scene for Bullet NEXT (next, nextf) and Jolt; legacy is reported only (system math library)",
+    "check_mode": "no address, undefined-behaviour or thread checker report on any scene; 100,000 random collision pairs per Bullet engine with no crash and no NaN",
+    "host_profiles": "bge279 reproduces the F0 goldens; blender53-rb on Blender 5.3's Bullet is bit-identical to Blender 5.3's own rigid body code",
+    "recordings": "playback reaches the live run's hash on every frame"
+  },
   "F3c": {
     "stack20_max_penetration_m": 0.005,
     "rest_jitter_max_speed_mps_after_2s": 0.01,

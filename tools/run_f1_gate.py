@@ -87,7 +87,8 @@ def main():
         same_orig = run([cmp_tool, f"{d}/{n}.orig.bnr", f"{d}/{n}.legacy.bnr"])[0] == 0
         same_gold = gold.get(n) == leg[n]["final_hash"]
         rows.append((n, same_orig, same_gold))
-    res["T1.1"] = unchanged and all(a and b for _, a, b in rows)
+    # Goldens exist for the 16 F0 scenes; the Lab's later scenes (FL) only need legacy = original.
+    res["T1.1"] = unchanged and all(a and (b or n not in gold) for n, a, b in rows)
     notes["T1.1"] = rows
 
     # T1.2 thread determinism: same final hash at 1, 2, 4 and 8 threads, stable over 2 runs.
@@ -171,7 +172,7 @@ def main():
     rep += ["## Tests", "", "| Test | Result | Measured |", "| --- | --- | --- |"]
     meas = {
         "T1.1": f"legacy/ unchanged since F0: {'yes' if unchanged else 'NO'}; "
-                f"{sum(1 for _, a, b in rows if a and b)} of {len(rows)} scenes bit-identical to original and goldens",
+                f"{sum(1 for n, a, b in rows if a and b)} of {sum(1 for n, _, _ in rows if n in gold)} F0 scenes bit-identical to original and goldens; legacy = original on {sum(1 for _, a, _ in rows if a)} of {len(rows)} scenes",
         "T1.2": f"{sum(1 for *_, ok in t12 if ok)} of {len(t12)} scenes identical at 1, 2, 4, 8 threads",
         "T1.3": f"{bump:.3f} m/s (limit {gates['ghost_bump_max_vertical_speed_mps']}; legacy {bump_legacy:.2f})",
         "T1.4": f"{through} of {total} through (legacy {through_legacy} of {total})",
