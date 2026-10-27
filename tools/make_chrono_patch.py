@@ -78,6 +78,27 @@ def main():
           + old_lookup + ";\n\n" + fn[i:])
     open(ie, "w").write(head + fn + s[b:])
 
+    # 1b. FL fixes found by the Lab, made by hand (the files differ too much from upstream to diff):
+    # hulls without faces take the GJK path, and edge maps made by the features die with their shape.
+    cc = os.path.join(base, "BulletCollision", "CollisionDispatch", "cbtConvexConvexAlgorithm.cpp")
+    edit(cc, "\t\t\tif (polyhedronA->getConvexPolyhedron() && polyhedronB->getConvexPolyhedron())\n",
+         "\t\t\t// Bullet NEXT (FL): a hull whose points are all on a plane, a line or one point has a\n"
+         "\t\t\t// polyhedron with no faces; clipping against it crashed. Such hulls take the GJK path below.\n"
+         "\t\t\tconst bool solidA = polyhedronA->getConvexPolyhedron() && polyhedronA->getConvexPolyhedron()->m_faces.size() >= 4;\n"
+         "\t\t\tconst bool solidB = polyhedronB->getConvexPolyhedron() && polyhedronB->getConvexPolyhedron()->m_faces.size() >= 4;\n"
+         "\t\t\tif (solidA && solidB)\n")
+    edit(cc, "dispatchInfo.m_enableSatConvex && polyhedronA->getConvexPolyhedron() && polyhedronB->getShapeType() == TRIANGLE_SHAPE_PROXYTYPE",
+         "dispatchInfo.m_enableSatConvex && solidA && polyhedronB->getShapeType() == TRIANGLE_SHAPE_PROXYTYPE")
+    tm = os.path.join(base, "BulletCollision", "CollisionShapes", "cbtTriangleInfoMap.h")
+    edit(tm, "\tcbtTriangleInfoMap()\n\t{\n",
+         "\t// Bullet NEXT (FL): made by cbtNextEnableActiveEdges for its mesh, which then deletes it.\n"
+         "\tbool m_bnOwnedByShape;\n\n\tcbtTriangleInfoMap()\n\t{\n\t\tm_bnOwnedByShape = false;\n")
+    bv = os.path.join(base, "BulletCollision", "CollisionShapes", "cbtBvhTriangleMeshShape.cpp")
+    edit(bv, "cbtBvhTriangleMeshShape::~cbtBvhTriangleMeshShape()\n{\n",
+         "cbtBvhTriangleMeshShape::~cbtBvhTriangleMeshShape()\n{\n"
+         "\tif (m_triangleInfoMap && m_triangleInfoMap->m_bnOwnedByShape)  // Bullet NEXT (cbtNextCollision)\n"
+         "\t\tdelete m_triangleInfoMap;\n")
+
     # 2. cbtNextCollision.h/.cpp: the collision-only part of btNextFeatures
     src = open(os.path.join(NX, "BulletDynamics", "Dynamics", "btNextFeatures.cpp")).read()
     body = src[src.index("int btNextEnableHullClipping"):src.index("// --- CCD")]

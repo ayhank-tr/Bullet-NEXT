@@ -179,7 +179,10 @@ static void* threadFunction(void* argument)
 	while (1)
 	{
 		checkPThreadFunction(sem_wait(status->startSemaphore));
+		// Bullet NEXT (FL, found by the Lab's thread checker): read under the lock runTask writes it with.
+		status->m_cs->lock();
 		void* userPtr = status->m_userPtr;
+		status->m_cs->unlock();
 
 		if (userPtr)
 		{
@@ -212,10 +215,12 @@ void btThreadSupportPosix::runTask(int threadIndex, void* userData)
 	btThreadStatus& threadStatus = m_activeThreadStatus[threadIndex];
 	btAssert(threadIndex >= 0);
 	btAssert(threadIndex < m_activeThreadStatus.size());
-	threadStatus.m_cs = m_cs;
-	threadStatus.m_commandId = 1;
+	// Bullet NEXT (FL, found by the Lab's thread checker): under the lock the worker uses for m_status.
+	m_cs->lock();
+	threadStatus.m_commandId = 1;  // m_cs was set once, when the thread started
 	threadStatus.m_status = 1;
 	threadStatus.m_userPtr = userData;
+	m_cs->unlock();
 	m_startedThreadsMask |= UINT64(1) << threadIndex;
 
 	// fire event to start new task
@@ -249,8 +254,10 @@ int btThreadSupportPosix::waitForResponse()
 
 	btThreadStatus& threadStatus = m_activeThreadStatus[last];
 
+	m_cs->lock();
 	btAssert(threadStatus.m_status > 1);
 	threadStatus.m_status = 0;
+	m_cs->unlock();
 
 	// need to find an active spu
 	btAssert(last >= 0);

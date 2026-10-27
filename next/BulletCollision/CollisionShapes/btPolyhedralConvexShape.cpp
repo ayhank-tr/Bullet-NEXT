@@ -41,7 +41,11 @@ void btPolyhedralConvexShape::setPolyhedralFeatures(btConvexPolyhedron& polyhedr
 {
 	if (m_polyhedron)
 	{
-		*m_polyhedron = polyhedron;
+		// Bullet NEXT (FL, found by the Lab's leak checker): assigning copied the faces into the
+		// old ones without freeing their index arrays (btAlignedObjectArray copies by placement
+		// new), leaking on every SAT contact with a mesh triangle. Rebuild the copy instead.
+		m_polyhedron->~btConvexPolyhedron();
+		new (m_polyhedron) btConvexPolyhedron(polyhedron);
 	}
 	else
 	{

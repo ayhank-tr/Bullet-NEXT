@@ -187,7 +187,8 @@ static int bakeEdgeInfo(btCollisionShape* shape)
 	{
 		if (!bvh->getTriangleInfoMap())
 		{
-			btTriangleInfoMap* map = new btTriangleInfoMap();  // owned by the shape's lifetime
+			btTriangleInfoMap* map = new btTriangleInfoMap();
+			map->m_bnOwnedByShape = true;  // the mesh shape deletes it
 			btGenerateInternalEdgeInfo(bvh, map);
 		}
 		return 1;
@@ -199,6 +200,7 @@ static int bakeEdgeInfo(btCollisionShape* shape)
 		if (!hf->getTriangleInfoMap())
 		{
 			btTriangleInfoMap* map = new btTriangleInfoMap();
+			map->m_bnOwnedByShape = true;  // the heightfield shape deletes it
 			btGenerateInternalEdgeInfo(hf, map);
 		}
 		return 1;
@@ -245,7 +247,7 @@ void btNextConfigureWorld(btDiscreteDynamicsWorld* world)
 	world->getDispatchInfo().m_enableSatConvex = true;
 	world->getDispatchInfo().m_useContinuous = true;
 	gBnMeshContactReduction = true;  // C1.6b
-	// Bullet 2.84 (Blender 2.79b) recovered deep penetration (split impulse) with erp2 = 0.8;
-	// upstream lowered it to 0.2, which leaves resting bodies up to 4x deeper. Keep 2.79b's value.
-	world->getSolverInfo().m_erp2 = btScalar(0.8);
+	// The contact error correction (erp2) is the host's choice, not set here (FL): the 2.79b game
+	// engine keeps Bullet 2.84's 0.8 (it sets it itself), while Blender's rigid body world runs
+	// Bullet's 0.2 - with 0.8 there, a moving triangle mesh falls through a static one.
 }

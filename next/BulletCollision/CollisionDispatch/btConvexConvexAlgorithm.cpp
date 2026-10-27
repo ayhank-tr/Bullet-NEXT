@@ -478,7 +478,12 @@ void btConvexConvexAlgorithm ::processCollision(const btCollisionObjectWrapper* 
 
 			btPolyhedralConvexShape* polyhedronA = (btPolyhedralConvexShape*)min0;
 			btPolyhedralConvexShape* polyhedronB = (btPolyhedralConvexShape*)min1;
-			if (polyhedronA->getConvexPolyhedron() && polyhedronB->getConvexPolyhedron())
+			// Bullet NEXT (FL, found by the Lab's pair fuzzer): a hull whose points are all on a
+			// plane, a line or one point gets a polyhedron with no faces, and clipping against it
+			// read outside its face list and crashed. Such hulls take the GJK path below.
+			const bool solidA = polyhedronA->getConvexPolyhedron() && polyhedronA->getConvexPolyhedron()->m_faces.size() >= 4;
+			const bool solidB = polyhedronB->getConvexPolyhedron() && polyhedronB->getConvexPolyhedron()->m_faces.size() >= 4;
+			if (solidA && solidB)
 			{
 				btScalar threshold = m_manifoldPtr->getContactBreakingThreshold()+ resultOut->m_closestPointDistanceThreshold;
 
@@ -537,7 +542,7 @@ void btConvexConvexAlgorithm ::processCollision(const btCollisionObjectWrapper* 
 			else
 			{
 				//we can also deal with convex versus triangle (without connectivity data)
-				if (dispatchInfo.m_enableSatConvex && polyhedronA->getConvexPolyhedron() && polyhedronB->getShapeType() == TRIANGLE_SHAPE_PROXYTYPE)
+				if (dispatchInfo.m_enableSatConvex && solidA && polyhedronB->getShapeType() == TRIANGLE_SHAPE_PROXYTYPE)
 				{
 					btVertexArray worldSpaceVertices;
 					btTriangleShape* tri = (btTriangleShape*)polyhedronB;

@@ -721,6 +721,12 @@ void btSequentialImpulseConstraintSolverMt::convertJoints(btTypedConstraint** co
 			params.m_solverConstraint = totalNumRows;
 			params.m_solverBodyA = getOrInitSolverBody(constraint->getRigidBodyA(), infoGlobal.m_timeStep);
 			params.m_solverBodyB = getOrInitSolverBody(constraint->getRigidBodyB(), infoGlobal.m_timeStep);
+			// Bullet NEXT (FL, found by the Lab's thread checker): convertJoint raises this maximum,
+			// and the parallel loop below had several threads raising it at once, so an update
+			// could be lost. Raised here, in order, convertJoint finds it already set.
+			const int iterations = constraint->getOverrideNumSolverIterations() > 0 ? constraint->getOverrideNumSolverIterations() : infoGlobal.m_numIterations;
+			if (iterations > m_maxOverrideNumSolverIterations)
+				m_maxOverrideNumSolverIterations = iterations;
 		}
 		else
 		{
@@ -1534,9 +1540,10 @@ btScalar btSequentialImpulseConstraintSolverMt::solveGroupCacheFriendlyFinish(bt
 	}
 
 	{
-		WriteJointsLoop loop(this, infoGlobal);
-		int grainSize = 400;
-		btParallelFor(0, m_tmpSolverNonContactConstraintPool.size(), grainSize, loop);
+		// Bullet NEXT (FL, found by the Lab's thread checker): one joint has several rows, and rows
+		// of one joint could land in two threads, which then both wrote the joint's applied impulse,
+		// feedback and enabled flag. Written in order, on this thread, as the serial solver does.
+		internalWriteBackJoints(0, m_tmpSolverNonContactConstraintPool.size(), infoGlobal);
 	}
 	{
 		WriteBodiesLoop loop(this, infoGlobal);

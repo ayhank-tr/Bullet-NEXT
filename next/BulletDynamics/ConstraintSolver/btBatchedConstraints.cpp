@@ -624,7 +624,9 @@ public:
 		{
 			Chunk& chunk = m_chunks[m_numChunks];
 			chunk.ptr = ptr;
-			chunk.size = sz;
+			// Bullet NEXT (FL, found by the Lab's undefined-behaviour checker): every chunk starts on
+			// 16 bytes; after the bool array the next chunks (ints, btVector3) were misaligned.
+			chunk.size = (sz + 15) & ~size_t(15);
 			m_numChunks++;
 		}
 	}

@@ -1,0 +1,100 @@
+name: lab
+
+# Bullet NEXT Lab (FL): builds the Lab on Linux, Windows and for the browser, runs every scene on
+# every engine (one thread) and compares the final hashes with lab/scenes/native_hashes.txt
+# (Linux, GCC). Bullet NEXT and Jolt must match there; legacy is only reported (it uses the
+# system's math library, as Blender 2.79b does). Also runs the random collision-pair test.
+
+on:
+  push:
+  workflow_dispatch:
+
+jobs:
+  linux:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@v4
+      - name: Tools
+        run: sudo apt-get update && sudo apt-get install -y ninja-build
+      - name: Configure
+        run: cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release
+      - name: Build
+        run: cmake --build build
+      - name: Every scene, every engine, one thread
+        run: ./build/lab/bnl_run --threads 0 | tee run-linux.txt
+      - name: Same results as the reference
+        run: python3 lab/tools/compare_hashes.py run-linux.txt --require next,nextf,jolt
+      - name: Random collision pairs
+        run: ./build/lab/bnl_fuzz --pairs 20000
+      - uses: actions/upload-artifact@v4
+        with:
+          name: run-linux
+          path: run-linux.txt
+
+  windows:
+    runs-on: windows-2022
+    timeout-minutes: 120
+    steps:
+      - uses: actions/checkout@v4
+      - name: Configure (Visual Studio 2022)
+        run: cmake -S . -B build -G "Visual Studio 17 2022" -A x64
+      - name: Build
+        run: cmake --build build --config Release --target bnl_run bnl_fuzz -- /m
+      - name: Every scene, every engine, one thread
+        shell: pwsh
+        run: ./build/lab/Release/bnl_run.exe --threads 0 --scenes lab/scenes | Tee-Object -FilePath run-windows.txt
+      # Same bits on Windows as on Linux is Bullet NEXT's goal; this step says where it is not yet.
+      - name: Same results as Linux
+        continue-on-error: true
+        run: python lab/tools/compare_hashes.py run-windows.txt --require next,nextf,jolt
+      - name: Random collision pairs
+        run: ./build/lab/Release/bnl_fuzz.exe --pairs 20000
+      - uses: actions/upload-artifact@v4
+        with:
+          name: run-windows
+          path: run-windows.txt
+
+  # The game engine builds Bullet NEXT with the Visual Studio 2017 compiler (v141): check that
+  # Bullet NEXT and its math library still compile there.
+  windows-v141:
+    runs-on: windows-2022
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@v4
+      - name: Visual Studio 2017 compiler (v141)
+        shell: pwsh
+        run: |
+          $vs = & "${env:ProgramFiles(x86)}\Microsoft Visual Studio\Installer\vswhere.exe" -latest -property installationPath
+          if (-not (Test-Path "$vs\VC\Auxiliary\Build\Microsoft.VCToolsVersion.v141.default.txt")) {
+            $installer = "${env:ProgramFiles(x86)}\Microsoft Visual Studio\Installer\vs_installer.exe"
+            $p = Start-Process -FilePath $installer -ArgumentList @("modify", "--installPath", "`"$vs`"", "--add", "Microsoft.VisualStudio.Component.VC.v141.x86.x64", "--quiet", "--norestart", "--nocache") -Wait -PassThru
+            if ($p.ExitCode -ne 0 -and $p.ExitCode -ne 3010) { exit $p.ExitCode }
+          }
+      - name: Configure
+        run: cmake -S . -B build -G "Visual Studio 17 2022" -A x64 -T v141 -DBN_BUILD_LAB=OFF -DBN_BUILD_HARNESS=OFF -DBN_BUILD_ORIG=OFF -DBN_BUILD_UPSTREAM=OFF -DBN_BUILD_DOUBLE=OFF
+      - name: Build Bullet NEXT and legacy
+        run: cmake --build build --config Release --target bn_bullet_next bn_bullet_legacy -- /m
+
+  web:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@v4
+      - uses: mymindstorm/setup-emsdk@v14
+        with:
+          version: 3.1.47
+      - name: Tools
+        run: sudo apt-get update && sudo apt-get install -y ninja-build
+      - name: Configure
+        run: emcmake cmake -S . -B build-web -G Ninja -DCMAKE_BUILD_TYPE=Release -DBN_BUILD_ORIG=OFF -DBN_BUILD_UPSTREAM=OFF -DBN_BUILD_DOUBLE=OFF -DBN_BUILD_HARNESS=OFF
+      - name: Build
+        run: cmake --build build-web --target bnl_run
+      - name: Every scene, every engine (WebAssembly, Node)
+        run: node build-web/lab/bnl_run.js --threads 0 | tee run-web.txt
+      - name: Same results as the PC
+        run: python3 lab/tools/compare_hashes.py run-web.txt --require next,nextf,jolt
+      - uses: actions/upload-artifact@v4
+        with:
+          name: run-web
+          path: run-web.txt

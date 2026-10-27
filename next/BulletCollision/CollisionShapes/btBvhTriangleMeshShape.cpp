@@ -80,6 +80,8 @@ void btBvhTriangleMeshShape::refitTree(const btVector3& aabbMin, const btVector3
 
 btBvhTriangleMeshShape::~btBvhTriangleMeshShape()
 {
+	if (m_triangleInfoMap && m_triangleInfoMap->m_bnOwnedByShape)  // Bullet NEXT (btNextFeatures)
+		delete m_triangleInfoMap;
 	if (m_ownsBvh)
 	{
 		m_bvh->~btOptimizedBvh();

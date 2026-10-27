@@ -1,0 +1,8 @@
+# Bullet NEXT Lab check mode (CL.11): reports the undefined-behaviour checker may skip.
+# The legacy backend is Blender 2.79b's Bullet 2.84, frozen bit for bit (TL.2): its pair-cache
+# hash shifts and adds signed ints that wrap, as every compiler it was ever built with does.
+# Bullet NEXT has the upstream fix (unsigned hash); these lines only cover the frozen copy.
+signed-integer-overflow:legacy/BulletCollision/BroadphaseCollision/btOverlappingPairCache.h
+shift-base:legacy/BulletCollision/BroadphaseCollision/btOverlappingPairCache.h
+signed-integer-overflow:legacy/BulletCollision/CollisionDispatch/btHashedSimplePairCache.h
+shift-base:legacy/BulletCollision/CollisionDispatch/btHashedSimplePairCache.h

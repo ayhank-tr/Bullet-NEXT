@@ -4,6 +4,8 @@
 #include "LinearMath/btThreads.h"
 #include "LinearMath/btQuickprof.h"
 #include <stdio.h>
+#include <new>
+#include <atomic>
 #include <algorithm>
 
 #if BT_THREADSAFE
@@ -44,7 +46,8 @@ WorkerThreadDirectives
 {
 	static const int kMaxThreadCount = BT_MAX_THREAD_COUNT;
 	// directives for all worker threads packed into a single cacheline
-	char m_threadDirs[kMaxThreadCount];
+	// Bullet NEXT (FL, found by the Lab's thread checker): read by workers without a lock, so atomic.
+	std::atomic<char> m_threadDirs[kMaxThreadCount];
 
 public:
 	enum Type
@@ -65,7 +68,7 @@ public:
 	Type getDirective(int threadId)
 	{
 		btAssert(threadId < kMaxThreadCount);
-		return static_cast<Type>(m_threadDirs[threadId]);
+		return static_cast<Type>(m_threadDirs[threadId].load());
 	}
 
 	void setDirectiveByRange(int threadBegin, int threadEnd, Type dir)
@@ -82,12 +85,49 @@ public:
 
 class JobQueue;
 
+// Bullet NEXT (FL, found by the Lab's undefined-behaviour checker): the job queues and the
+// per-thread storage are declared 64-byte aligned (one cache line each), but btAlignedObjectArray
+// only aligns to 16, so they lived at misaligned addresses. This array keeps the 64.
+template <typename T>
+class btCacheLineArray
+{
+	T* m_data;
+	int m_size;
+
+public:
+	btCacheLineArray() : m_data(0), m_size(0) {}
+	~btCacheLineArray() { clear(); }
+	void clear()
+	{
+		for (int i = 0; i < m_size; ++i)
+			m_data[i].~T();
+		if (m_data)
+			btAlignedFree(m_data);
+		m_data = 0;
+		m_size = 0;
+	}
+	void resize(int n)  // the scheduler sizes each array once, from empty
+	{
+		clear();
+		if (n <= 0)
+			return;
+		m_data = static_cast<T*>(btAlignedAlloc(sizeof(T) * n, 64));
+		for (int i = 0; i < n; ++i)
+			new (&m_data[i]) T();
+		m_size = n;
+	}
+	int size() const { return m_size; }
+	T& operator[](int i) { return m_data[i]; }
+	const T& operator[](int i) const { return m_data[i]; }
+};
+
 ATTRIBUTE_ALIGNED64(struct)
 ThreadLocalStorage
 {
 	int m_threadId;
-	WorkerThreadStatus::Type m_status;
-	int m_numJobsFinished;
+	// Bullet NEXT (FL, found by the Lab's thread checker): read by the main thread without a lock.
+	std::atomic<int> m_status;  // WorkerThreadStatus::Type
+	std::atomic<int> m_numJobsFinished;
 	btSpinMutex m_mutex;
 	btScalar m_sumResult;
 	WorkerThreadDirectives* m_directive;
@@ -163,7 +203,8 @@ JobQueue
 	btAlignedObjectArray<IJob*> m_jobQueue;
 	char* m_jobMem;
 	int m_jobMemSize;
-	bool m_queueIsEmpty;
+	// Bullet NEXT (FL, found by the Lab's thread checker): read without the lock as a hint, so atomic.
+	std::atomic<bool> m_queueIsEmpty;
 	int m_tailIndex;
 	int m_headIndex;
 	int m_allocSize;
@@ -216,7 +257,7 @@ public:
 		}
 	}
 
-	void init(btThreadSupportInterface * threadSup, btAlignedObjectArray<JobQueue> * contextArray)
+	void init(btThreadSupportInterface * threadSup, btCacheLineArray<JobQueue> * contextArray)
 	{
 		m_threadSupport = threadSup;
 		if (threadSup)
@@ -225,9 +266,9 @@ public:
 		}
 		setupJobStealing(contextArray, contextArray->size());
 	}
-	void setupJobStealing(btAlignedObjectArray<JobQueue> * contextArray, int numActiveContexts)
+	void setupJobStealing(btCacheLineArray<JobQueue> * contextArray, int numActiveContexts)
 	{
-		btAlignedObjectArray<JobQueue>& contexts = *contextArray;
+		btCacheLineArray<JobQueue>& contexts = *contextArray;
 		int selfIndex = 0;
 		for (int i = 0; i < contexts.size(); ++i)
 		{
@@ -424,9 +465,9 @@ class btTaskSchedulerDefault : public btITaskScheduler
 {
 	btThreadSupportInterface* m_threadSupport;
 	WorkerThreadDirectives* m_workerDirective;
-	btAlignedObjectArray<JobQueue> m_jobQueues;
+	btCacheLineArray<JobQueue> m_jobQueues;
 	btAlignedObjectArray<JobQueue*> m_perThreadJobQueues;
-	btAlignedObjectArray<ThreadLocalStorage> m_threadLocalStorage;
+	btCacheLineArray<ThreadLocalStorage> m_threadLocalStorage;
 	btSpinMutex m_antiNestingLock;  // prevent nested parallel-for
 	btClock m_clock;
 	int m_numThreads;
@@ -468,7 +509,7 @@ public:
 	{
 		btThreadSupportInterface::ConstructionInfo constructionInfo("TaskScheduler", WorkerThreadFunc);
 		m_threadSupport = btThreadSupportInterface::create(constructionInfo);
-		m_workerDirective = static_cast<WorkerThreadDirectives*>(btAlignedAlloc(sizeof(*m_workerDirective), 64));
+		m_workerDirective = new (btAlignedAlloc(sizeof(*m_workerDirective), 64)) WorkerThreadDirectives();  // Bullet NEXT: constructed
 
 		m_numWorkerThreads = m_threadSupport->getNumWorkerThreads();
 		m_maxNumThreads = m_threadSupport->getNumWorkerThreads() + 1;

@@ -47,6 +47,14 @@ struct btWheelInfo
 		btVector3 m_wheelAxleWS;       // axle in worldspace
 		bool m_isInContact;
 		void* m_groundObject;  //could be general void* ptr
+
+		// Bullet NEXT (FL, found by the Lab's undefined-behaviour checker): a wheel was copied
+		// (addWheel) before its first raycast, reading these uninitialised.
+		RaycastInfo()
+			: m_contactNormalWS(0, 0, 0), m_contactPointWS(0, 0, 0), m_suspensionLength(0), m_hardPointWS(0, 0, 0),
+			  m_wheelDirectionWS(0, 0, 0), m_wheelAxleWS(0, 0, 0), m_isInContact(false), m_groundObject(0)
+		{
+		}
 	};
 
 	RaycastInfo m_raycastInfo;

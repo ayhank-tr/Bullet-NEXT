@@ -153,6 +153,32 @@ index 9b24219..d87db62 100644
  #include "BulletCollision/BroadphaseCollision/cbtBroadphaseProxy.h"
  #include "cbtCollisionCreateFunc.h"
  
+diff --git a/src/chrono/collision/bullet/BulletCollision/CollisionDispatch/cbtConvexConvexAlgorithm.cpp b/src/chrono/collision/bullet/BulletCollision/CollisionDispatch/cbtConvexConvexAlgorithm.cpp
+index 55a4d58..b3cfd97 100644
+--- a/src/chrono/collision/bullet/BulletCollision/CollisionDispatch/cbtConvexConvexAlgorithm.cpp
++++ b/src/chrono/collision/bullet/BulletCollision/CollisionDispatch/cbtConvexConvexAlgorithm.cpp
+@@ -483,7 +483,11 @@ void cbtConvexConvexAlgorithm ::processCollision(const cbtCollisionObjectWrapper
+ 
+ 			cbtPolyhedralConvexShape* polyhedronA = (cbtPolyhedralConvexShape*)min0;
+ 			cbtPolyhedralConvexShape* polyhedronB = (cbtPolyhedralConvexShape*)min1;
+-			if (polyhedronA->getConvexPolyhedron() && polyhedronB->getConvexPolyhedron())
++			// Bullet NEXT (FL): a hull whose points are all on a plane, a line or one point has a
++			// polyhedron with no faces; clipping against it crashed. Such hulls take the GJK path below.
++			const bool solidA = polyhedronA->getConvexPolyhedron() && polyhedronA->getConvexPolyhedron()->m_faces.size() >= 4;
++			const bool solidB = polyhedronB->getConvexPolyhedron() && polyhedronB->getConvexPolyhedron()->m_faces.size() >= 4;
++			if (solidA && solidB)
+ 			{
+ 				cbtScalar threshold = m_manifoldPtr->getContactBreakingThreshold()+ resultOut->m_closestPointDistanceThreshold;
+ 
+@@ -542,7 +546,7 @@ void cbtConvexConvexAlgorithm ::processCollision(const cbtCollisionObjectWrapper
+ 			else
+ 			{
+ 				//we can also deal with convex versus triangle (without connectivity data)
+-				if (dispatchInfo.m_enableSatConvex && polyhedronA->getConvexPolyhedron() && polyhedronB->getShapeType() == TRIANGLE_SHAPE_PROXYTYPE)
++				if (dispatchInfo.m_enableSatConvex && solidA && polyhedronB->getShapeType() == TRIANGLE_SHAPE_PROXYTYPE)
+ 				{
+ 					cbtVertexArray worldSpaceVertices;
+ 					cbtTriangleShape* tri = (cbtTriangleShape*)polyhedronB;
 diff --git a/src/chrono/collision/bullet/BulletCollision/CollisionDispatch/cbtInternalEdgeUtility.cpp b/src/chrono/collision/bullet/BulletCollision/CollisionDispatch/cbtInternalEdgeUtility.cpp
 index f09f47f..bf1e8d7 100644
 --- a/src/chrono/collision/bullet/BulletCollision/CollisionDispatch/cbtInternalEdgeUtility.cpp
@@ -252,6 +278,19 @@ index 6f60148..e9f7556 100644
  	/// in the future we can let the user override the methods to combine restitution and friction
  	static cbtScalar calculateCombinedRestitution(const cbtCollisionObject* body0, const cbtCollisionObject* body1);
  	static cbtScalar calculateCombinedFriction(const cbtCollisionObject* body0, const cbtCollisionObject* body1);
+diff --git a/src/chrono/collision/bullet/BulletCollision/CollisionShapes/cbtBvhTriangleMeshShape.cpp b/src/chrono/collision/bullet/BulletCollision/CollisionShapes/cbtBvhTriangleMeshShape.cpp
+index db807c4..507dbb6 100644
+--- a/src/chrono/collision/bullet/BulletCollision/CollisionShapes/cbtBvhTriangleMeshShape.cpp
++++ b/src/chrono/collision/bullet/BulletCollision/CollisionShapes/cbtBvhTriangleMeshShape.cpp
+@@ -80,6 +80,8 @@ void cbtBvhTriangleMeshShape::refitTree(const cbtVector3& aabbMin, const cbtVect
+ 
+ cbtBvhTriangleMeshShape::~cbtBvhTriangleMeshShape()
+ {
++	if (m_triangleInfoMap && m_triangleInfoMap->m_bnOwnedByShape)  // Bullet NEXT (cbtNextCollision)
++		delete m_triangleInfoMap;
+ 	if (m_ownsBvh)
+ 	{
+ 		m_bvh->~cbtOptimizedBvh();
 diff --git a/src/chrono/collision/bullet/BulletCollision/CollisionShapes/cbtConvexPolyhedron.cpp b/src/chrono/collision/bullet/BulletCollision/CollisionShapes/cbtConvexPolyhedron.cpp
 index e33d211..f90a020 100644
 --- a/src/chrono/collision/bullet/BulletCollision/CollisionShapes/cbtConvexPolyhedron.cpp
@@ -267,6 +306,23 @@ index e33d211..f90a020 100644
  			{
  				const cbtScalar Saved0 = m_extents[e0];
  				const cbtScalar Saved1 = m_extents[e1];
+diff --git a/src/chrono/collision/bullet/BulletCollision/CollisionShapes/cbtTriangleInfoMap.h b/src/chrono/collision/bullet/BulletCollision/CollisionShapes/cbtTriangleInfoMap.h
+index 81418fa..4f35881 100644
+--- a/src/chrono/collision/bullet/BulletCollision/CollisionShapes/cbtTriangleInfoMap.h
++++ b/src/chrono/collision/bullet/BulletCollision/CollisionShapes/cbtTriangleInfoMap.h
+@@ -59,8 +59,12 @@ struct cbtTriangleInfoMap : public cbtInternalTriangleInfoMap
+ 	cbtScalar m_maxEdgeAngleThreshold;  //ignore edges that connect triangles at an angle larger than this m_maxEdgeAngleThreshold
+ 	cbtScalar m_zeroAreaThreshold;      ///used to determine if a triangle is degenerate (length squared of cross product of 2 triangle edges < threshold)
+ 
++	// Bullet NEXT (FL): made by cbtNextEnableActiveEdges for its mesh, which then deletes it.
++	bool m_bnOwnedByShape;
++
+ 	cbtTriangleInfoMap()
+ 	{
++		m_bnOwnedByShape = false;
+ 		m_convexEpsilon = 0.00f;
+ 		m_planarEpsilon = 0.0001f;
+ 		m_equalVertexThreshold = cbtScalar(0.0001) * cbtScalar(0.0001);
 diff --git a/src/chrono/collision/bullet/ChCollisionSystemBullet.cpp b/src/chrono/collision/bullet/ChCollisionSystemBullet.cpp
 index 1999b28..41b1703 100644
 --- a/src/chrono/collision/bullet/ChCollisionSystemBullet.cpp
@@ -333,10 +389,10 @@ index d20ecba..bcd0ad0 100644
      virtual void Run() override;
 diff --git a/src/chrono/collision/bullet/cbtNextCollision.cpp b/src/chrono/collision/bullet/cbtNextCollision.cpp
 new file mode 100644
-index 0000000..b56b4f1
+index 0000000..401840e
 --- /dev/null
 +++ b/src/chrono/collision/bullet/cbtNextCollision.cpp
-@@ -0,0 +1,230 @@
+@@ -0,0 +1,232 @@
 +/*
 +Bullet NEXT collision features for Chrono's Bullet copy (F1, T1.7).
 +Copyright (c) 2026 BGE NEXT contributors. Same zlib terms as Bullet.
@@ -525,7 +581,8 @@ index 0000000..b56b4f1
 +	{
 +		if (!bvh->getTriangleInfoMap())
 +		{
-+			cbtTriangleInfoMap* map = new cbtTriangleInfoMap();  // owned by the shape's lifetime
++			cbtTriangleInfoMap* map = new cbtTriangleInfoMap();
++			map->m_bnOwnedByShape = true;  // the mesh shape deletes it
 +			cbtGenerateInternalEdgeInfo(bvh, map);
 +		}
 +		return 1;
@@ -537,6 +594,7 @@ index 0000000..b56b4f1
 +		if (!hf->getTriangleInfoMap())
 +		{
 +			cbtTriangleInfoMap* map = new cbtTriangleInfoMap();
++			map->m_bnOwnedByShape = true;  // the heightfield shape deletes it
 +			cbtGenerateInternalEdgeInfo(hf, map);
 +		}
 +		return 1;

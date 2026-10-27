@@ -1,0 +1,98 @@
+name: harfang
+
+# Bullet NEXT Lab in HARFANG 3D (FL): fetches the pinned HARFANG, applies the Lab patch, builds
+# HARFANG with Bullet NEXT, its unit tests, the Python module and the viewer; runs every scene in
+# HARFANG and compares with the Lab's reference hashes; on Linux also builds the browser page.
+
+on:
+  push:
+    paths:
+      - "integration/harfang/**"
+      - "lab/**"
+      - "next/**"
+      - "harness/src/**"
+      - "tools/fetch_harfang.py"
+      - ".github/workflows/harfang.yml"
+  workflow_dispatch:
+
+jobs:
+  linux:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 180
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          path: bullet-next
+      - name: Tools and libraries
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y ninja-build xorg-dev libgl1-mesa-dev libgl1-mesa-dri libgtk-3-dev xvfb
+          pip install pypeg2
+      - name: Fetch HARFANG 3.2.7 and apply the Lab patch
+        run: python3 bullet-next/tools/fetch_harfang.py hg
+      - name: Configure
+        run: >
+          cmake -S hg/harfang -B build-hg -G Ninja -DCMAKE_BUILD_TYPE=Release
+          -DHG_BULLET_NEXT_DIR=$GITHUB_WORKSPACE/bullet-next -DHG_FABGEN_PATH=$GITHUB_WORKSPACE/hg/fabgen
+          -DHG_BUILD_HG_PYTHON=ON -DHG_BUILD_TESTS=ON -DHG_BUILD_ASSIMP_CONVERTER=OFF -DHG_BUILD_FBX_CONVERTER=OFF
+          -DHG_BUILD_GLTF_EXPORTER=OFF -DHG_BUILD_GLTF_IMPORTER=OFF
+      - name: Build
+        run: cmake --build build-hg --target tests harfang.so bnl_viewer assetc shaderc
+      - name: HARFANG unit tests
+        run: cd build-hg/harfang/tests && ./tests
+      - name: Every scene in HARFANG (Python, headless)
+        run: PYTHONPATH=build-hg/languages/hg_python BN_THREADS=0 python3 bullet-next/lab/harfang/lab_headless.py --engines legacy,next,nextf,jolt --out headless.json
+      - name: Same results as the Lab
+        run: python3 bullet-next/lab/tools/compare_hashes.py headless.json --require legacy,next,nextf,jolt
+      - name: Viewer draws (Xvfb, 120 frames)
+        run: xvfb-run -s "-screen 0 1600x900x24" build-hg/harfang/bnl_viewer --frames 120
+      - name: Viewer shaders for WebGL
+        run: |
+          mkdir -p toolchain && cp build-hg/extern/bgfx/shaderc toolchain/
+          build-hg/tools/assetc/assetc -toolchain toolchain -api GLES -platform linux -q bullet-next/lab/viewer/assets web_assets
+      - uses: mymindstorm/setup-emsdk@v14
+        with:
+          version: 3.1.47
+      - name: Browser build
+        run: |
+          emcmake cmake -S hg/harfang -B build-web -G Ninja -DCMAKE_BUILD_TYPE=Release -DHG_BUILD_HARFANG_STATIC=ON \
+            -DHG_BUILD_ASSETC=OFF -DHG_BUILD_ASSIMP_CONVERTER=OFF -DHG_BUILD_FBX_CONVERTER=OFF -DHG_BUILD_GLTF_EXPORTER=OFF \
+            -DHG_BUILD_GLTF_IMPORTER=OFF -DHG_BUILD_TESTS=OFF -DHG_BUILD_HG_PYTHON=OFF -DHG_BUILD_HG_LUA=OFF \
+            -DHG_ENABLE_RECAST_DETOUR_API=OFF -DHG_BULLET_NEXT_DIR=$GITHUB_WORKSPACE/bullet-next \
+            -DHG_FABGEN_PATH=$GITHUB_WORKSPACE/hg/fabgen -DBNL_WEB_ASSETS=$GITHUB_WORKSPACE/web_assets
+          cmake --build build-web --target bnl_viewer
+          python3 bullet-next/lab/web/pack_page.py build-web/harfang/bnl_viewer.js bullet-next-lab.html --standalone
+      - uses: actions/upload-artifact@v4
+        with:
+          name: harfang-linux
+          path: |
+            headless.json
+            bullet-next-lab.html
+
+  windows:
+    runs-on: windows-2022
+    timeout-minutes: 180
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          path: bullet-next
+      - name: Fetch HARFANG 3.2.7 and apply the Lab patch
+        run: |
+          pip install pypeg2
+          python bullet-next/tools/fetch_harfang.py hg
+      - name: Configure (Visual Studio 2022)
+        run: >
+          cmake -S hg/harfang -B build-hg -G "Visual Studio 17 2022" -A x64
+          -DHG_BULLET_NEXT_DIR=${{ github.workspace }}/bullet-next -DHG_FABGEN_PATH=${{ github.workspace }}/hg/fabgen
+          -DHG_BUILD_HG_PYTHON=OFF -DHG_BUILD_TESTS=ON -DHG_BUILD_ASSIMP_CONVERTER=OFF -DHG_BUILD_FBX_CONVERTER=OFF
+          -DHG_BUILD_GLTF_EXPORTER=OFF -DHG_BUILD_GLTF_IMPORTER=OFF
+      # The viewer's post-build step compiles its shaders with assetc and shaderc (Direct3D 11).
+      - name: Build
+        run: cmake --build build-hg --config Release --target tests bnl_viewer -- /m
+      - name: HARFANG unit tests
+        continue-on-error: true  # the runner has no audio device
+        run: cd build-hg/harfang/tests/Release; ./tests.exe
+      - uses: actions/upload-artifact@v4
+        with:
+          name: harfang-windows-viewer
+          path: build-hg/harfang/Release/

@@ -14,6 +14,7 @@ subject to the following restrictions:
 */
 
 #include "btHeightfieldTerrainShape.h"
+#include "btTriangleInfoMap.h"
 
 #include "LinearMath/btTransformUtil.h"
 
@@ -165,6 +166,8 @@ void btHeightfieldTerrainShape::initialize(
 
 btHeightfieldTerrainShape::~btHeightfieldTerrainShape()
 {
+	if (m_triangleInfoMap && m_triangleInfoMap->m_bnOwnedByShape)  // Bullet NEXT (btNextFeatures)
+		delete m_triangleInfoMap;
 	clearAccelerator();
 }
 

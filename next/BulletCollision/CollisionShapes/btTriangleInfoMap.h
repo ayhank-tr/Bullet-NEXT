@@ -58,9 +58,13 @@ struct btTriangleInfoMap : public btInternalTriangleInfoMap
 	btScalar m_edgeDistanceThreshold;  ///used to determine edge contacts: if the closest distance between a contact point and an edge is smaller than this distance threshold it is considered to "hit the edge"
 	btScalar m_maxEdgeAngleThreshold;  //ignore edges that connect triangles at an angle larger than this m_maxEdgeAngleThreshold
 	btScalar m_zeroAreaThreshold;      ///used to determine if a triangle is degenerate (length squared of cross product of 2 triangle edges < threshold)
+	// Bullet NEXT (FL, found by the Lab's leak checker): set when the map was made for its mesh by
+	// btNextEnableActiveEdges; the mesh (or heightfield) shape then deletes it with itself.
+	bool m_bnOwnedByShape;
 
 	btTriangleInfoMap()
 	{
+		m_bnOwnedByShape = false;
 		m_convexEpsilon = 0.00f;
 		m_planarEpsilon = 0.0001f;
 		m_equalVertexThreshold = btScalar(0.0001) * btScalar(0.0001);
