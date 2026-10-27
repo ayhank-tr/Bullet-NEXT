@@ -9,6 +9,7 @@
 | UPBGE | master `63bd081` (26 Oct 2026) | GPL-2.0-or-later | Reference for BGE wiring: setting and Python names only, no code copied | GPL-compatible |
 | Box2D v3 (F3c) | v3.2.0 + 2, `a292912` (20 Oct 2026), reference only | MIT | Soft Step design: substeps, soft constraint coefficients (`b2MakeSoft`), relax and restitution passes; re-implemented on Bullet's data structures, no file copied | Credited in `btSoftStepConstraintSolver.cpp` |
 | Rapier ideas (F3c) | none | Apache-2.0 | Rebuilding joints every substep: re-implemented with Bullet's own joints, no code copied | None |
+| PositionBasedDynamics (Stage 1 reference) | v2.2.2, not vendored | MIT | Reference for the car-body damage model and elastic rods; a Lab reference engine for soft bodies and rods only. No XPBD method adopted | Keep MIT notice in any copied file; patents below |
 | Jolt Physics | v5.6.0 (`third_party/jolt`, FL) | MIT | Lab engine, the yardstick; later the character controller port | Keep MIT notice (`third_party/jolt/LICENSE`) |
 | Project Chrono `cbt` copy (F1 T1.7) | main `da80252` (25 Oct 2026) | BSD-3-Clause; Bullet parts zlib | Build target for the collision changes (`integration/chrono/`) | Keep notices; our patch files are zlib |
 | Jolt Physics ideas (F1) | none | MIT | Flat-region rule, approach-velocity removal at time of impact: re-implemented, no code copied | None |
@@ -26,5 +27,8 @@
 | Emscripten | 3.1.47, build tool | MIT / UIUC | Browser build | None for the output |
 | SDL2 (browser build) | 2.24.2 (Emscripten port) | zlib | Window and input in the browser page | Keep notice |
 
-Not used: XPBD-based code (active NVIDIA patent US11270041B2 — legal review first);
+Not used: XPBD-based code (NVIDIA patent US 11,270,041 B2, filed 2018, listed as active to 2040 —
+legal review first; the MIT licence of PositionBasedDynamics grants no patent rights). The
+original position-based dynamics patent (US 7,616,204, from a 2005 filing) may be near its end;
+its status is unconfirmed, so legal review comes before any method from it is adopted;
 PhysX 5.11+ (Apache-2.0; take 5.10 BSD-3 if ever needed).

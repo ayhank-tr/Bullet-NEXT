@@ -25,6 +25,10 @@
     "pyramid_15",
     "mass_ratio",
     "bounce",
-    "pendulum"
+    "pendulum",
+    "rally_slide",
+    "rally_far",
+    "rally_far_shift",
+    "rally_stage"
   ]
 }

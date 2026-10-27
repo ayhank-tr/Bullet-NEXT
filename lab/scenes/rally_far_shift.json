@@ -1,0 +1,23 @@
+{
+  "covers": "Stage 0 TS.3, TS.4",
+  "frames": 600,
+  "name": "rally_far_shift",
+  "profile": "bge279",
+  "settings": {"ang_sleep":1.0,"contact_breaking":0.02,"deactivation_time":2.0,"gravity_z":-9.81,"lin_sleep":0.8,"substeps":1,"ticrate":60.0},
+  "objects": [
+    {"body":{"at":{"p":[10000.0,10000.0,0.0]},"name":"ground","samples":[320,320],"shape":"heightfield","spacing":2.0,"terrain":{"kind":"plane"},"type":"static"}},
+    {"body":{"at":{"p":[9720.0,9980.0,0.51]},"friction":0.0,"half":[0.5,0.5,0.5],"mass":1.0,"no_sleep":true,"shape":"box","type":"rigid"}},
+    {"body":{"at":{"p":[9720.0,9990.0,0.41]},"friction":0.0,"mass":1.0,"no_sleep":true,"radius":0.4,"shape":"sphere","type":"rigid"}},
+    {"body":{"at":{"p":[9720.0,10000.0,0.41]},"friction":0.0,"half":[2.2,0.9,0.4],"mass":1200.0,"no_sleep":true,"shape":"box","type":"rigid"}},
+    {"body":{"at":{"p":[9720.0,10010.0,0.41]},"friction":0.0,"half":[2.2,0.9,0.4],"mass":1200.0,"no_sleep":true,"shape":"box","type":"rigid"}},
+    {"body":{"at":{"p":[9720.0,10020.0,0.41]},"friction":0.0,"mass":1.0,"no_sleep":true,"radius":0.4,"shape":"sphere","type":"rigid"}}
+  ],
+  "actions": [
+    {"body":0,"from":0,"op":"shift_origin","to":0,"v":[-10000.0,-10000.0,0.0]},
+    {"body":1,"from":0,"op":"lin_vel","to":0,"v":[30.0,0.0,0.0]},
+    {"body":2,"from":0,"op":"lin_vel","to":0,"v":[30.0,0.0,0.0]},
+    {"body":3,"from":0,"op":"lin_vel","to":0,"v":[50.0,0.0,0.0]},
+    {"body":4,"from":0,"op":"lin_vel","to":0,"v":[30.0,0.0,0.0]},
+    {"body":5,"from":0,"op":"lin_vel","to":0,"v":[50.0,0.0,0.0]}
+  ]
+}

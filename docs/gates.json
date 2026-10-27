@@ -41,6 +41,12 @@
     "softstep_rest_penetration_max_m": 0.0025,
     "b31_revision": "2026-10-27: resting depth held to a bound (soft contacts sink under load by design); cost compared where both solvers do the same job (joint drift, stacks standing)"
   },
+  "S0": {
+    "bounce_max_restitution_error": 0.05,
+    "bump_max_upward_speed_mps": 0.05,
+    "far_from_origin_m": 10000.0,
+    "recentred_path_max_difference_m": 0.001
+  },
   "tolerance_mode_defaults": {
     "pos_m": 0.0001,
     "rot_rad": 0.001,
