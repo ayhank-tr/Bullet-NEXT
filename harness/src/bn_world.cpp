@@ -1,9 +1,12 @@
 // Bullet NEXT golden harness - BGE 2.79b world factory (commits C0.4, C0.5).
 #include "bn_world.h"
+#include "bn_rbmath.h"
+
+#include <cfloat>
 
 #include <cstdlib>
 
-namespace bn {
+BN_NAMESPACE_BEGIN
 
 // ---------------------------------------------------------------------------------------
 // CcdOverlapFilterCallBack: Bullet group/mask test + user col_group/col_mask test.
@@ -18,6 +21,22 @@ class BgeOverlapFilter : public btOverlapFilterCallback {
     btCollisionObject* o1 = static_cast<btCollisionObject*>(p1->m_clientObject);
     if (c && o0 && o1 && o0->getUserIndex() >= 0 && o1->getUserIndex() >= 0)
       c = m_w->collides(o0->getUserIndex(), o1->getUserIndex());
+    return c;
+  }
+ private:
+  World* m_w;
+};
+
+// rbFilterCallback (Blender 5.3 intern/rigidbody): Bullet group/mask + collision collections.
+class RbOverlapFilter : public btOverlapFilterCallback {
+ public:
+  explicit RbOverlapFilter(World* w) : m_w(w) {}
+  virtual bool needBroadphaseCollision(btBroadphaseProxy* p0, btBroadphaseProxy* p1) const {
+    bool c = (p0->m_collisionFilterGroup & p1->m_collisionFilterMask) != 0;
+    c = c && (p1->m_collisionFilterGroup & p0->m_collisionFilterMask);
+    btCollisionObject* o0 = static_cast<btCollisionObject*>(p0->m_clientObject);
+    btCollisionObject* o1 = static_cast<btCollisionObject*>(p1->m_clientObject);
+    c = c && (m_w->bodies()[o0->getUserIndex()].opts.colGroups & m_w->bodies()[o1->getUserIndex()].opts.colGroups);
     return c;
   }
  private:
@@ -66,10 +85,14 @@ class BgeCharacter : public btKinematicCharacterController {
 
 // Gate switch (B1.2 feature cost): BN_FEATURES=<bitmask> keeps only the listed Bullet NEXT features
 // (1 world config, 2 linked collision, 4 hull clipping, 8 active edges, 16 CCD). Default: all on.
-static bool featureOn(int bit) {
+static bool envFeatureOn(int bit) {
   static int mask = -2;
   if (mask == -2) { const char* e = std::getenv("BN_FEATURES"); mask = e ? std::atoi(e) : -1; }
   return (mask & bit) != 0;
+}
+
+bool World::featureOn(int bit) const {
+  return m_settings.features >= 0 ? (m_settings.features & bit) != 0 : envFeatureOn(bit);
 }
 
 static void tickCallback(btDynamicsWorld* w, btScalar dt) {
@@ -80,13 +103,32 @@ static void tickCallback(btDynamicsWorld* w, btScalar dt) {
 #if BN_NEXT_FEATURES
 // Gate switch (T1.2, B1.1): BN_THREADS=<n> runs the threaded soft-rigid world on n threads, as
 // BGE NEXT does (C1.9). Unset or 0 keeps the classic single-threaded world.
-static int threadCount() {
+static int threadCount(int fromSettings) {
+  if (fromSettings >= 0) return fromSettings;
   const char* e = std::getenv("BN_THREADS");
   return e ? std::atoi(e) : 0;
 }
 #endif
 
 World::World(const Settings& s) : m_settings(s) {
+  if (s.profile == kBlenderRb) {
+    // RB_dworld_new (Blender 5.3 intern/rigidbody/rb_bullet_api.cpp)
+    m_config = new btDefaultCollisionConfiguration();
+    m_dispatcher = new btCollisionDispatcher(m_config);
+    btGImpactCollisionAlgorithm::registerAlgorithm(m_dispatcher);
+    m_broadphase = new btDbvtBroadphase();
+    m_filter = new RbOverlapFilter(this);
+    m_broadphase->getOverlappingPairCache()->setOverlapFilterCallback(m_filter);
+    m_solver = new btSequentialImpulseConstraintSolver();
+    m_world = new btDiscreteDynamicsWorld(m_dispatcher, m_broadphase, m_solver, m_config);
+    m_world->setGravity(btVector3(0, 0, s.gravityZ));
+#if BN_NEXT_FEATURES
+    if (featureOn(1)) btNextConfigureWorld(m_world);
+    m_meshReduction = featureOn(1);
+#endif
+    applyGlobals();
+    return;
+  }
   m_config = new btSoftBodyRigidBodyCollisionConfiguration();
   m_broadphase = new btDbvtBroadphase();
   m_filter = new BgeOverlapFilter(this);
@@ -94,7 +136,7 @@ World::World(const Settings& s) : m_settings(s) {
   m_broadphase->getOverlappingPairCache()->setOverlapFilterCallback(m_filter);
   m_broadphase->getOverlappingPairCache()->setInternalGhostPairCallback(m_ghostCb);
 #if BN_NEXT_FEATURES
-  const int threads = threadCount();
+  const int threads = threadCount(s.threads);
   if (threads > 0) {
     static bool scheduler = false;
     if (!scheduler) {
@@ -114,15 +156,26 @@ World::World(const Settings& s) : m_settings(s) {
   {
     m_dispatcher = new btCollisionDispatcher(m_config);
     btGImpactCollisionAlgorithm::registerAlgorithm(m_dispatcher);
+#if BN_NEXT_LIB
+    if (s.nncg) m_solver = new btNNCGConstraintSolver();  // BGE NEXT: Solver "NNCG"
+    else
+#endif
     m_solver = new btSequentialImpulseConstraintSolver();  // SetSolverType(1)
     m_soft = new btSoftRigidDynamicsWorld(m_dispatcher, m_broadphase, m_solver, m_config);
     m_world = m_soft;
   }
   m_world->setInternalTickCallback(&tickCallback, this);
 #if BN_NEXT_FEATURES
-  if (featureOn(1)) btNextConfigureWorld(m_world);               // C1.3: ordered pairs, SAT for triangles
-  btNextSetLinkedCollisionWhileEnabled(featureOn(2));            // C1.1: Blender's linked-collision semantics
+  if (featureOn(1)) {
+    btNextConfigureWorld(m_world);                               // C1.3: ordered pairs, SAT for triangles
+    // Bullet 2.84 (Blender 2.79b) recovered deep penetration with erp2 = 0.8; upstream lowered it
+    // to 0.2, which leaves resting bodies up to 4x deeper. The BGE world keeps 2.79b's value.
+    m_world->getSolverInfo().m_erp2 = btScalar(0.8);
+  }
+  m_meshReduction = featureOn(1);                                // C1.6b, part of the world configuration
+  m_linkedCollision = featureOn(2);                              // C1.1: Blender's linked-collision semantics
 #endif
+  applyGlobals();
   m_world->setGravity(btVector3(0, 0, s.gravityZ));
   softInfo().m_gravity = btVector3(0, 0, s.gravityZ);
   if (s.setSolverParams) {
@@ -130,6 +183,10 @@ World::World(const Settings& s) : m_settings(s) {
     m_world->getSolverInfo().m_tau = s.tau;
     m_world->getSolverInfo().m_damping = s.damping;
   }
+  if (s.iterations > 0) m_world->getSolverInfo().m_numIterations = s.iterations;
+  if (s.erp >= 0) m_world->getSolverInfo().m_erp = s.erp;
+  if (s.erp2 >= 0) m_world->getSolverInfo().m_erp2 = s.erp2;
+  if (s.cfm >= 0) m_world->getSolverInfo().m_globalCfm = s.cfm;
 }
 
 btSoftBodyWorldInfo& World::softInfo() {
@@ -154,6 +211,12 @@ void World::removeSoft(btSoftBody* b) {
 }
 
 World::~World() {
+  // The soft-body distance-field cache lives in the world info; Bullet 2.84's has no destructor
+  // that frees its cells (Bullet NEXT's has), so empty it here.
+#if BN_NEXT_FEATURES
+  if (m_softMt) m_softMt->getWorldInfo().m_sparsesdf.Reset();
+#endif
+  if (m_soft) m_soft->getWorldInfo().m_sparsesdf.Reset();  // (the Blender profile has no soft world)
   for (size_t i = 0; i < m_vehicles.size(); ++i) { m_world->removeVehicle(m_vehicles[i]); delete m_vehicles[i]; }
   for (size_t i = 0; i < m_raycasters.size(); ++i) delete m_raycasters[i];
   for (size_t i = 0; i < m_tunings.size(); ++i) delete m_tunings[i];
@@ -165,7 +228,7 @@ World::~World() {
     else if (b.rb) { m_world->removeRigidBody(b.rb); delete b.rb->getMotionState(); }
     else if (b.obj) m_world->removeCollisionObject(b.obj);
     delete b.obj;
-    if (!b.soft) delete b.opts.shape;
+    if (!b.soft) deleteShape(b.opts.shape);
   }
   for (size_t i = 0; i < m_meshes.size(); ++i) delete m_meshes[i];
   delete m_fixed;
@@ -174,6 +237,15 @@ World::~World() {
   delete m_solverPool;
 #endif
   delete m_broadphase; delete m_dispatcher; delete m_config;
+}
+
+// Process-wide switches of Bullet NEXT, set for this world before it creates constraints and
+// before every step, so that worlds with and without the features can share one program (the Lab).
+void World::applyGlobals() {
+#if BN_NEXT_FEATURES || BN_NEXT_LIB
+  btNextSetLinkedCollisionWhileEnabled(m_linkedCollision);
+  gBnMeshContactReduction = m_meshReduction;
+#endif
 }
 
 bool World::collides(int a, int b) const {
@@ -205,6 +277,7 @@ void World::tick(btScalar) {
 }
 
 int World::add(const BodyOpts& o) {
+  if (m_settings.profile == kBlenderRb) return addRb(o);
   BodyRec rec;
   rec.opts = o;
   const bool dyn = (o.kind == kDynamic || o.kind == kRigid);
@@ -317,6 +390,7 @@ int World::addPointToPoint(int a, int b, const btVector3& pa, const btVector3& p
   btTypedConstraint* c = b < 0 ? new btPoint2PointConstraint(*rigidOf(a), pa)
                                : new btPoint2PointConstraint(*rigidOf(a), *rigidOf(b), pa, pb);
   c->setUserConstraintType(1);
+  applyGlobals();
   m_world->addConstraint(c, true);
   m_constraints.push_back(c);
   return (int)m_constraints.size() - 1;
@@ -328,6 +402,7 @@ int World::addHinge(int a, int b, const btTransform& fa, const btTransform& fb, 
                                : new btHingeConstraint(*rigidOf(a), *rigidOf(b), fa, fb);
   c->setAngularOnly(angularOnly);
   c->setUserConstraintType(angularOnly ? 3 : 2);
+  applyGlobals();
   m_world->addConstraint(c, true);
   m_constraints.push_back(c);
   return (int)m_constraints.size() - 1;
@@ -337,6 +412,7 @@ int World::addConeTwist(int a, int b, const btTransform& fa, const btTransform& 
   btConeTwistConstraint* c = b < 0 ? new btConeTwistConstraint(*rigidOf(a), fixedBody(), fa, rigidOf(a)->getCenterOfMassTransform() * fa)
                                    : new btConeTwistConstraint(*rigidOf(a), *rigidOf(b), fa, fb);
   c->setUserConstraintType(4);
+  applyGlobals();
   m_world->addConstraint(c, true);
   m_constraints.push_back(c);
   return (int)m_constraints.size() - 1;
@@ -346,6 +422,7 @@ int World::addGeneric6DofSpring(int a, int b, const btTransform& fa, const btTra
   btGeneric6DofSpringConstraint* c =
       new btGeneric6DofSpringConstraint(*rigidOf(a), *rigidOf(b), fa, fb, true);
   c->setUserConstraintType(12);
+  applyGlobals();
   m_world->addConstraint(c, true);
   m_constraints.push_back(c);
   return (int)m_constraints.size() - 1;
@@ -424,10 +501,37 @@ void World::setKinematicTransform(int i, const btTransform& t) {
   body->activate(true);
 }
 
+void World::moveKinematic(int i, const btVector3& delta) {
+  BodyRec& r = m_bodies[i];
+  if (m_settings.profile != kBlenderRb) {
+    btTransform t = r.obj->getWorldTransform();
+    t.setOrigin(t.getOrigin() + delta);
+    setKinematicTransform(i, t);
+    return;
+  }
+  // rigidbody_create_substep_data: old = the body now, new = the keyframed object this frame
+  // (here: old + delta; the actions only translate, so the rotation is kept).
+  const float d[3] = {(float)delta.x(), (float)delta.y(), (float)delta.z()};
+  for (size_t k = 0; k < m_targets.size(); ++k)
+    if (m_targets[k].body == i) {
+      for (int c = 0; c < 3; ++c) m_targets[k].to[c] += d[c];
+      return;
+    }
+  KinematicTarget t;
+  t.body = i;
+  const btTransform& cur = r.rb->getWorldTransform();
+  const btQuaternion q = cur.getRotation();
+  for (int c = 0; c < 3; ++c) { t.from[c] = (float)cur.getOrigin()[c]; t.to[c] = t.from[c] + d[c]; }
+  t.rot[0] = (float)q.getW(); t.rot[1] = (float)q.getX(); t.rot[2] = (float)q.getY(); t.rot[3] = (float)q.getZ();
+  m_targets.push_back(t);
+}
+
 void World::step() {
+  if (m_settings.profile == kBlenderRb) { stepRb(); return; }
   // ProceedDeltaTime(curTime, timeStep, interval) with a fixed frame rate.
   gDeactivationTime = m_settings.deactivationTime;
   gContactBreakingThreshold = m_settings.contactBreaking;
+  applyGlobals();
   const float timeStep = (float)(1.0 / (double)m_settings.ticrate);
   const float interval = timeStep;
   const float subStep = timeStep / float(m_settings.substeps);
@@ -487,23 +591,31 @@ btCollisionShape* makeHull(const std::vector<btVector3>& pts, float margin) {
   return s;
 }
 
-namespace {
-struct MeshStore {  // keeps vertex/index memory alive for btTriangleIndexVertexArray
-  std::vector<std::vector<btScalar> > v;
-  std::vector<std::vector<int> > t;
-};
-MeshStore& store() { static MeshStore s; return s; }
-}  // namespace
+void deleteShape(btCollisionShape* s) {
+  if (!s) return;
+  const btStridingMeshInterface* mesh = 0;
+  switch (s->getShapeType()) {
+    case COMPOUND_SHAPE_PROXYTYPE: {
+      btCompoundShape* c = static_cast<btCompoundShape*>(s);
+      for (int i = c->getNumChildShapes() - 1; i >= 0; --i) deleteShape(c->getChildShape(i));
+      break;
+    }
+    case SCALED_TRIANGLE_MESH_SHAPE_PROXYTYPE:
+      deleteShape(static_cast<btScaledBvhTriangleMeshShape*>(s)->getChildShape());
+      break;
+    case TRIANGLE_MESH_SHAPE_PROXYTYPE: mesh = static_cast<btBvhTriangleMeshShape*>(s)->getMeshInterface(); break;
+    case GIMPACT_SHAPE_PROXYTYPE: mesh = static_cast<btGImpactMeshShape*>(s)->getMeshInterface(); break;
+    default: break;
+  }
+  delete s;
+  delete mesh;
+}
 
 btCollisionShape* makeMesh(const std::vector<btVector3>& verts, const std::vector<int>& tris,
                            bool dynamic, const btVector3& scale, float margin) {
-  MeshStore& st = store();
-  st.v.push_back(std::vector<btScalar>());
-  st.t.push_back(tris);
-  std::vector<btScalar>& fv = st.v.back();
+  std::vector<btScalar> fv;
   for (size_t i = 0; i < verts.size(); ++i) { fv.push_back(verts[i].x()); fv.push_back(verts[i].y()); fv.push_back(verts[i].z()); }
-  btTriangleIndexVertexArray* arr = new btTriangleIndexVertexArray(
-      (int)tris.size() / 3, &st.t.back()[0], 3 * sizeof(int), (int)verts.size(), &fv[0], 3 * sizeof(btScalar));
+  btTriangleIndexVertexArray* arr = new OwnedMesh(fv, tris);
   if (dynamic) {
     btGImpactMeshShape* g = new btGImpactMeshShape(arr);
     g->setMargin(margin);
@@ -541,4 +653,188 @@ void boxMesh(const btVector3& h, std::vector<btVector3>& v, std::vector<int>& t)
   t.assign(f, f + 36);
 }
 
-}  // namespace bn
+
+// ---------------------------------------------------------------------------------------
+// Blender rigid body world (profile kBlenderRb, FL CL.7): what Blender 5.3 does with Bullet,
+// rebuilt here so it runs on every Lab backend. Bodies: rigidbody_validate_sim_object and the
+// RB_body_* calls it makes; constraints: rigidbody_validate_sim_constraint and RB_constraint_*;
+// stepping: BKE_rigidbody_do_simulation. lab/reference/bnl_rbref.cpp drives Blender's own
+// rb_bullet_api.cpp the same way; on Blender's Bullet copy both must give the same hashes (TL.5).
+
+int World::addRb(const BodyOpts& o) {
+  BodyRec rec;
+  rec.opts = o;
+  const bool active = (o.kind == kRigid || o.kind == kDynamic) && !o.animated;
+  // RB_body_new
+  btTransform trans;
+  trans.setIdentity();
+  trans.setOrigin(o.rbLoc);
+  trans.setRotation(o.rbRot);
+  btDefaultMotionState* ms = new btDefaultMotionState(trans);
+  btRigidBody::btRigidBodyConstructionInfo ci(1.0f, ms, o.shape);
+  btRigidBody* body = new btRigidBody(ci);
+  body->setFriction(o.friction);
+  body->setRestitution(o.restitution);
+  body->setDamping(o.linDamp, o.angDamp);
+  body->setSleepingThresholds(o.rbLinSleep, o.rbAngSleep);
+  if (o.useDeactivation) body->forceActivationState(ACTIVE_TAG);
+  else body->setActivationState(DISABLE_DEACTIVATION);
+  if (!active || o.startDeactivated) body->setActivationState(ISLAND_SLEEPING);
+  body->setLinearFactor(o.linFactor);
+  body->setAngularFactor(o.angFactor);
+  // RB_body_set_mass (RBO_GET_MASS: 0 for passive, keyframed or disabled bodies)
+  rec.mass = active ? o.mass : 0.0f;
+  btVector3 localInertia(0, 0, 0);
+  if (rec.mass) body->getCollisionShape()->calculateLocalInertia(rec.mass, localInertia);
+  body->setMassProps(rec.mass, localInertia);
+  body->updateInertiaTensor();
+  // RB_body_set_kinematic_state
+  if (o.animated) body->setCollisionFlags(body->getCollisionFlags() | btCollisionObject::CF_KINEMATIC_OBJECT);
+  else body->setCollisionFlags(body->getCollisionFlags() & ~btCollisionObject::CF_KINEMATIC_OBJECT);
+  rec.obj = body;
+  rec.rb = body;
+  const int index = (int)m_bodies.size();
+  body->setUserIndex(index);
+  m_bodies.push_back(rec);
+  m_world->addRigidBody(body);  // RB_dworld_add_body
+#if BN_NEXT_FEATURES
+  if (featureOn(4)) btNextEnableHullClipping(o.shape);
+  if (!active && featureOn(8)) btNextEnableActiveEdges(body);
+  if (active && featureOn(16)) btNextConfigureCcd(body, true);
+#endif
+  return index;
+}
+
+int World::addRbJoint(const RbJoint& j) {
+  btRigidBody* b1 = m_bodies[j.a].rb;
+  btRigidBody* b2 = m_bodies[j.b].rb;
+  // make_constraint_transforms
+  const btTransform t1 = b1->getWorldTransform().inverse() * j.frame;
+  const btTransform t2 = b2->getWorldTransform().inverse() * j.frame;
+  btTypedConstraint* con = 0;
+  enum { kFixed = 4, kPoint, kHinge, kSlider, kPiston, kGeneric, kGenericSpring, kMotor };
+  switch (j.type) {
+    case kPoint: {
+      const btVector3 p = j.frame.getOrigin();
+      con = new btPoint2PointConstraint(*b1, *b2, b1->getWorldTransform().inverse() * p, b2->getWorldTransform().inverse() * p);
+      break;
+    }
+    case kFixed: con = new btFixedConstraint(*b1, *b2, t1, t2); break;
+    case kHinge: {
+      btHingeConstraint* h = new btHingeConstraint(*b1, *b2, t1, t2);
+      if (j.useLimit[5]) h->setLimit(j.lower[5], j.upper[5], 0.9f, 0.3f, 1.0f);
+      else h->setLimit(0.0f, -1.0f, 0.9f, 0.3f, 1.0f);
+      con = h;
+      break;
+    }
+    case kSlider: {
+      btSliderConstraint* s = new btSliderConstraint(*b1, *b2, t1, t2, true);
+      if (j.useLimit[0]) { s->setLowerLinLimit(j.lower[0]); s->setUpperLinLimit(j.upper[0]); }
+      else { s->setLowerLinLimit(0.0f); s->setUpperLinLimit(-1.0f); }
+      con = s;
+      break;
+    }
+    case kPiston: {
+      btSliderConstraint* s = new btSliderConstraint(*b1, *b2, t1, t2, true);
+      s->setUpperAngLimit(-1.0f);
+      s->setLowerLinLimit(j.useLimit[0] ? j.lower[0] : 0.0f);
+      s->setUpperLinLimit(j.useLimit[0] ? j.upper[0] : -1.0f);
+      s->setLowerAngLimit(j.useLimit[3] ? j.lower[3] : 0.0f);
+      s->setUpperAngLimit(j.useLimit[3] ? j.upper[3] : -1.0f);
+      con = s;
+      break;
+    }
+    case kGeneric: {
+      btGeneric6DofConstraint* g = new btGeneric6DofConstraint(*b1, *b2, t1, t2, true);
+      for (int k = 0; k < 6; ++k) g->setLimit(k, j.useLimit[k] ? j.lower[k] : 0.0f, j.useLimit[k] ? j.upper[k] : -1.0f);
+      con = g;
+      break;
+    }
+    case kGenericSpring:
+      if (j.springType == 2) {
+        btGeneric6DofSpring2Constraint* g = new btGeneric6DofSpring2Constraint(*b1, *b2, t1, t2);
+        for (int k = 0; k < 6; ++k) {
+          g->enableSpring(k, j.useSpring[k]);
+          g->setStiffness(k, j.stiffness[k]);
+          g->setDamping(k, j.damping[k]);
+        }
+        g->setEquilibriumPoint();
+        for (int k = 0; k < 6; ++k) g->setLimit(k, j.useLimit[k] ? j.lower[k] : 0.0f, j.useLimit[k] ? j.upper[k] : -1.0f);
+        con = g;
+      } else {
+        btGeneric6DofSpringConstraint* g = new btGeneric6DofSpringConstraint(*b1, *b2, t1, t2, true);
+        for (int k = 0; k < 6; ++k) {
+          g->enableSpring(k, j.useSpring[k]);
+          g->setStiffness(k, j.stiffness[k]);
+          const float d = j.damping[k] > 1.0f ? 0.0f : 1.0f - j.damping[k];  // Blender inverts the range
+          g->setDamping(k, d);
+        }
+        g->setEquilibriumPoint();
+        for (int k = 0; k < 6; ++k) g->setLimit(k, j.useLimit[k] ? j.lower[k] : 0.0f, j.useLimit[k] ? j.upper[k] : -1.0f);
+        con = g;
+      }
+      break;
+    case kMotor: {
+      btGeneric6DofConstraint* g = new btGeneric6DofConstraint(*b1, *b2, t1, t2, true);
+      for (int k = 0; k < 6; ++k) g->setLimit(k, 0.0f, -1.0f);
+      g->getTranslationalLimitMotor()->m_upperLimit.setValue(-1.0f, -1.0f, -1.0f);
+      g->getTranslationalLimitMotor()->m_enableMotor[0] = j.useMotorLin;
+      g->getRotationalLimitMotor(0)->m_enableMotor = j.useMotorAng;
+      g->getTranslationalLimitMotor()->m_maxMotorForce.setX(j.motorLinMaxImpulse);
+      g->getRotationalLimitMotor(0)->m_maxMotorForce = j.motorAngMaxImpulse;
+      g->getTranslationalLimitMotor()->m_targetVelocity.setX(j.motorLinVelocity);
+      g->getRotationalLimitMotor(0)->m_targetVelocity = j.motorAngVelocity;
+      con = g;
+      break;
+    }
+  }
+  if (!con) return -1;
+  con->setEnabled(j.enabled);
+  con->setBreakingImpulseThreshold(j.breakingThreshold >= 0 ? j.breakingThreshold : FLT_MAX);
+  con->setOverrideNumSolverIterations(j.iterations);
+  con->setUserConstraintType(100 + j.type);
+  applyGlobals();
+  m_world->addConstraint(con, j.disableCollisions);
+  m_constraints.push_back(con);
+  return (int)m_constraints.size() - 1;
+}
+
+void World::stepRb() {
+  // BKE_rigidbody_do_simulation for one frame: world settings, then the substeps with the
+  // keyframed bodies interpolated towards this frame's targets.
+  // Blender never sets these two Bullet globals, so they keep Bullet's defaults. A BGE-profile
+  // world that ran before in the same program (another scene, another engine) may have changed
+  // them; put the defaults back (found by the Lab: rb scenes depended on the scene before).
+  gContactBreakingThreshold = btScalar(0.02);
+  gDeactivationTime = btScalar(2.);
+  const float timestep = 1.0f / m_settings.ticrate * 1.0f * m_settings.timeScale;
+  const float substep = timestep / float(m_settings.substeps);
+  const float interpStep = 1.0f / float(m_settings.substeps);
+  float interp = interpStep;
+  m_world->setGravity(btVector3(0, 0, m_settings.gravityZ));      // rigidbody_update_sim_world
+  if (m_settings.iterations > 0) m_world->getSolverInfo().m_numIterations = m_settings.iterations;
+  m_world->getSolverInfo().m_splitImpulse = m_settings.splitImpulse;
+  applyGlobals();
+  for (int i = 0; i < m_settings.substeps; ++i) {
+    for (size_t k = 0; k < m_targets.size(); ++k) {  // rigidbody_update_kinematic_obj_substep
+      const KinematicTarget& t = m_targets[k];
+      float loc[3], rot[4];
+      bnrb::interpV3(loc, t.from, t.to, interp);
+      bnrb::interpQt(rot, t.rot, t.rot, interp);
+      btRigidBody* body = m_bodies[t.body].rb;
+      body->setActivationState(ACTIVE_TAG);                          // RB_body_activate
+      btTransform trans;                                            // RB_body_set_loc_rot
+      trans.setIdentity();
+      trans.setOrigin(btVector3(loc[0], loc[1], loc[2]));
+      trans.setRotation(btQuaternion(rot[1], rot[2], rot[3], rot[0]));
+      body->getMotionState()->setWorldTransform(trans);
+    }
+    m_world->stepSimulation(substep, 0, substep);                   // RB_dworld_step_simulation
+    interp += interpStep;
+  }
+  m_targets.clear();
+  m_events.clear();  // Blender's rigid body world has no collision callbacks
+  ++m_frame;
+}
+
+BN_NAMESPACE_END  // namespace bn

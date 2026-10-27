@@ -6,7 +6,7 @@
 
 #include "bn_common.h"
 
-namespace bn {
+BN_NAMESPACE_BEGIN
 
 // BGE CcdConstructionInfo::CollisionFilterGroups
 enum FilterGroup {
@@ -14,6 +14,9 @@ enum FilterGroup {
   kSensorFilter = 16, kCharacterFilter = 32,
   kAllFilter = 1 | 2 | 4 | 8 | 16 | 32
 };
+
+// Host profiles (FL, CL.7): how the host program drives Bullet.
+enum Profile { kBge279 = 0, kBlenderRb = 1 };
 
 // BGE physics types (Object > Physics > Physics Type)
 enum BodyKind { kStatic, kDynamic, kRigid, kSensor, kCharacter, kSoft };
@@ -28,6 +31,15 @@ struct Settings {
   float angSleep = 1.0f;            // setDeactivationAngularTreshold
   bool setSolverParams = false;     // setSorConstant / setSolverTau / setSolverDamping
   float sor = 1.0f, tau = 0.6f, damping = 1.0f;
+  int threads = -1;                 // Bullet NEXT threaded world: -1 = BN_THREADS variable, 0 = off
+  // Scene-file solver settings (FL, CL.3); negative or empty = the engine's own default.
+  int iterations = -1;              // setNumIterations
+  int nncg = 0;                     // Bullet NEXT: 1 = NNCG solver (setSolverType), single-threaded world
+  float erp = -1, erp2 = -1, cfm = -1;  // joint ERP, contact ERP, CFM (UPBGE names)
+  int features = -1;                // Bullet NEXT features (bits as BN_FEATURES); -1 = BN_FEATURES or all
+  int profile = kBge279;
+  bool splitImpulse = false;        // Blender rigid body world settings
+  float timeScale = 1.0f;
 };
 
 struct BodyOpts {
@@ -45,6 +57,29 @@ struct BodyOpts {
   float clampVelMin = 0, clampVelMax = 0, clampAngMin = 0, clampAngMax = 0;
   bool reportCollisions = false;       // a Collision sensor / callback is registered
   std::string name;
+  // Blender rigid body world (profile kBlenderRb)
+  bool animated = false, useDeactivation = false, startDeactivated = false;
+  float rbLinSleep = 0.4f, rbAngSleep = 0.5f;
+  int colGroups = 1;
+  btVector3 rbLoc = btVector3(0, 0, 0);       // RB_body_new: location and rotation as given
+  btQuaternion rbRot = btQuaternion(0, 0, 0, 1);
+};
+
+// A Blender rigid body constraint (profile kBlenderRb), in world space between two bodies.
+struct RbJoint {
+  int type = 0;                        // bnl::ConstraintDesc::Type, kRbFixed and up
+  int a = 0, b = 0;
+  btTransform frame = btTransform::getIdentity();
+  bool enabled = true, disableCollisions = true;
+  float breakingThreshold = -1;
+  int iterations = -1;
+  bool useLimit[6] = {false, false, false, false, false, false};
+  float lower[6] = {0, 0, 0, 0, 0, 0}, upper[6] = {0, 0, 0, 0, 0, 0};
+  bool useSpring[6] = {false, false, false, false, false, false};
+  float stiffness[6] = {0, 0, 0, 0, 0, 0}, damping[6] = {0, 0, 0, 0, 0, 0};
+  int springType = 2;
+  bool useMotorLin = false, useMotorAng = false;
+  float motorLinVelocity = 0, motorAngVelocity = 0, motorLinMaxImpulse = 0, motorAngMaxImpulse = 0;
 };
 
 struct ContactEvent {
@@ -80,6 +115,8 @@ class World {
   int addGeneric6DofSpring(int a, int b, const btTransform& frameA, const btTransform& frameB);
   // KX_ConstraintWrapper.setParam(index, value0, value1) semantics for 6DOF / cone / hinge
   void setParam(int constraint, int index, float v0, float v1);
+  // Blender rigid body constraints, as BKE_rigidbody / rb_bullet_api create them.
+  int addRbJoint(const RbJoint& j);
 
   int addVehicle(int chassis);
   void addWheel(int vehicle, const btVector3& pos, const btVector3& down, const btVector3& axle,
@@ -89,6 +126,9 @@ class World {
   void step();  // one logic frame: CcdPhysicsEnvironment::ProceedDeltaTime
   void suspendDynamics(int body);  // switch to static/kinematic as BGE does
   void setKinematicTransform(int body, const btTransform& t);
+  // Scripted kinematic motion: BGE moves the body now; Blender's rigid body world moves it to
+  // the target over the next frame's substeps (rigidbody_update_kinematic_obj_substep).
+  void moveKinematic(int body, const btVector3& delta);
 
   const std::vector<BodyRec>& bodies() const { return m_bodies; }
   BodyRec& body(int i) { return m_bodies[i]; }
@@ -101,13 +141,19 @@ class World {
 
   bool collides(int a, int b) const;  // KX_GameObject::CheckCollision (user groups)
   void tick(btScalar dt);             // per-substep velocity clamping
+  void applyGlobals();
+  bool featureOn(int bit) const;    // Bullet NEXT feature switch (scene file, else BN_FEATURES)
 
  private:
   btRigidBody* rigidOf(int i);
   btRigidBody& fixedBody();
 
   Settings m_settings;
-  btSoftBodyRigidBodyCollisionConfiguration* m_config = nullptr;
+  btDefaultCollisionConfiguration* m_config = nullptr;
+  struct KinematicTarget { int body; float from[3], to[3], rot[4]; };  // floats, as Blender keeps them
+  std::vector<KinematicTarget> m_targets;  // Blender profile: this frame's kinematic moves
+  int addRb(const BodyOpts& o);
+  void stepRb();
   btCollisionDispatcher* m_dispatcher = nullptr;
   btDbvtBroadphase* m_broadphase = nullptr;
   btOverlapFilterCallback* m_filter = nullptr;
@@ -123,6 +169,7 @@ class World {
   void addSoft(btSoftBody* b);
   void removeSoft(btSoftBody* b);
   btRigidBody* m_fixed = nullptr;
+  bool m_linkedCollision = false, m_meshReduction = false;  // Bullet NEXT globals, set per step
   std::vector<BodyRec> m_bodies;
   std::vector<btTypedConstraint*> m_constraints;
   std::vector<btRaycastVehicle*> m_vehicles;
@@ -134,6 +181,23 @@ class World {
 };
 
 // Shape helpers (CcdShapeConstructionInfo::CreateBulletShape)
+// A triangle mesh that owns its vertex and index memory; it goes with its shape (deleteShape).
+struct MeshMemory {
+  std::vector<btScalar> v;
+  std::vector<int> t;
+  MeshMemory(const std::vector<btScalar>& vv, const std::vector<int>& tt) : v(vv), t(tt) {}
+};
+class OwnedMesh : private MeshMemory, public btTriangleIndexVertexArray {
+ public:
+  OwnedMesh(const std::vector<btScalar>& v, const std::vector<int>& t)
+      : MeshMemory(v, t),
+        btTriangleIndexVertexArray((int)MeshMemory::t.size() / 3, &MeshMemory::t[0], 3 * sizeof(int),
+                                   (int)MeshMemory::v.size() / 3, &MeshMemory::v[0], 3 * sizeof(btScalar)) {}
+};
+// Deletes a shape with everything the Lab made for it: compound children, the BVH inside the
+// scaled wrapper, mesh memory.
+void deleteShape(btCollisionShape* s);
+
 btCollisionShape* makeBox(const btVector3& half, float margin = 0.04f);
 btCollisionShape* makeSphere(float r, float margin = 0.04f);
 btCollisionShape* makeCylinderZ(const btVector3& half, float margin = 0.04f);
@@ -146,6 +210,6 @@ btCollisionShape* makeMesh(const std::vector<btVector3>& verts, const std::vecto
 void gridMesh(int nx, int ny, float size, std::vector<btVector3>& v, std::vector<int>& t);
 void boxMesh(const btVector3& half, std::vector<btVector3>& v, std::vector<int>& t);
 
-}  // namespace bn
+BN_NAMESPACE_END  // namespace bn
 
 #endif
