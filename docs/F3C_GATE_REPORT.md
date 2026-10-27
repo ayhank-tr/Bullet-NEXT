@@ -2,13 +2,15 @@
 
 Platform: Linux x86_64 cloud machine, 2 CPUs, GCC 13; WebAssembly with Emscripten 3.1.47 (Node 22).
 Run with `tools/run_f3c_gate.py --build build-lab --out gate_f3c` (raw outputs in `gate_f3c/`, not
-committed); tables made with `tools/f3c_report.py`. Windows (MSVC) runs in CI on the push; the PC
-tests come at project end.
+committed); tables made with `tools/f3c_report.py`. Windows (MSVC) runs in CI (green on `d12c05b`); the
+PC tests come at project end.
 
 **F3c gate (cloud part): PASSED, with B3.1 revised.** T3.1 to T3.6 pass. B3.1 passes under the
 revised definition agreed on 27 October (below); as first written it could not pass, and the
-reason is recorded here. Still open: the Windows CI run, the BGE settings patch (C3.8, written
-and checked, applied to the engine when you give the go) and the PC checks at project end.
+reason is recorded here. CI is green on `d12c05b`: Soft Step reaches the Linux hash on every
+scene on Windows (MSVC) and in the browser, and in HARFANG on Linux. Still open: the BGE
+settings patch (C3.8, written and checked, applied to the engine when you give the go) and the
+PC checks at project end.
 
 ## What Soft Step is
 

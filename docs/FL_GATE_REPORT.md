@@ -5,14 +5,17 @@ headless Chromium for the page). Run with `tools/run_fl_gate.py` (raw outputs in
 committed). Windows (MSVC) runs in CI on the first push; the PC tests come at project end.
 
 **FL gate (cloud part): PASSED.** All eight tests and the host-overhead gate pass here. Still open:
-the Windows CI run (TL.1 Windows, and whether Bullet NEXT gives the same bits on Windows as on
-Linux) and the PC smoke tests (viewer, physics-qa scripts, Snooker, Dogfight sandbox).
+the PC smoke tests (viewer, physics-qa scripts, Snooker, Dogfight sandbox).
+
+**Windows CI (added 27 October):** green from `4a2cde7` on. Both workflows (lab, harfang) build
+on Windows with MSVC, and Bullet NEXT (next, nextf) and Jolt reach the Linux hash on every scene
+there, so TL.1 Windows passes and Bullet NEXT gives the same bits on Windows as on Linux.
 
 ## Tests
 
 | Test | Result | Measured |
 | --- | --- | --- |
-| TL.1 Builds | PASS (Linux) | Lab, HARFANG 3.2.7 with Bullet NEXT and legacy, Python module, viewer: built. HARFANG unit tests 48 of 49 (engine.audio: no sound device in the cloud). Windows: CI workflows written |
+| TL.1 Builds | PASS (Linux) | Lab, HARFANG 3.2.7 with Bullet NEXT and legacy, Python module, viewer: built. HARFANG unit tests 48 of 49 (engine.audio: no sound device in the cloud). Windows: built in CI, green from `4a2cde7` |
 | TL.2 Legacy untouched | PASS | `legacy/` unchanged since F0; 16 of 16 F0 scenes equal the F0 goldens (harness and Lab runner) |
 | TL.3 Same physics in HARFANG | PASS | 84 of 84 runs headless in HARFANG (Python) reach the Lab's hash: legacy, next, nextf, Jolt, 21 scenes each |
 | TL.4 All engines | PASS | Jolt 21 of 21 scenes, Chrono 18 of 18 (vehicles, characters and soft bodies are not part of the Chrono engine), no NaN or blow-up. Chrono's 11 collision tests: same result patched as stock |
