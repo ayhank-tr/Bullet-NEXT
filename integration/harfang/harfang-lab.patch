@@ -1,0 +1,965 @@
+diff --git a/CMakeLists.txt b/CMakeLists.txt
+index 748df88..99be071 100644
+--- a/CMakeLists.txt
++++ b/CMakeLists.txt
+@@ -51,6 +51,7 @@ option(HG_BUILD_HG_GO "Harfang: Build Harfang Go extension" OFF)
+ option(HG_USE_GLFW "Harfang: Use GLFW backend" ON)
+ 
+ option(HG_ENABLE_BULLET3_SCENE_PHYSICS "Harfang: Scene physics using Bullet Dynamics" ON)
++set(HG_BULLET_NEXT_DIR "" CACHE PATH "Bullet NEXT Lab: path to the Bullet NEXT repository (empty: HARFANG's own Bullet 3.17)")
+ option(HG_ENABLE_RECAST_DETOUR_API "Harfang: Enable Recast/Detour API" ON)
+ 
+ option(HG_ENABLE_OPENVR_API "Harfang: Enable OpenVR API" OFF)
+@@ -180,6 +181,9 @@ endif()
+ 
+ if(HG_ENABLE_BULLET3_SCENE_PHYSICS)
+ 	add_compile_definitions(HG_ENABLE_BULLET3_SCENE_PHYSICS)
++	if(HG_BULLET_NEXT_DIR)
++		add_compile_definitions(HG_BULLET_NEXT)
++	endif()
+ endif()
+ if(HG_ENABLE_OPENXR_API)
+ 	add_compile_definitions(HG_ENABLE_OPENXR_API)
+@@ -331,6 +335,9 @@ SET(BUILD_SHARED_LIBS OFF CACHE BOOL "Build shared libraries" FORCE)
+ 
+ if(HG_ENABLE_BULLET3_SCENE_PHYSICS)
+ 	list(APPEND HG_BINDING_DEFINES_LIST "HG_ENABLE_BULLET3_SCENE_PHYSICS")
++	if(HG_BULLET_NEXT_DIR)
++		list(APPEND HG_BINDING_DEFINES_LIST "HG_BULLET_NEXT")
++	endif()
+ endif()
+ 
+ if(HG_BINDING_DEFINES_LIST)
+diff --git a/binding/bind_harfang.py b/binding/bind_harfang.py
+index a53a275..6dc4b43 100644
+--- a/binding/bind_harfang.py
++++ b/binding/bind_harfang.py
+@@ -1635,6 +1635,66 @@ static std::vector<hg::ForwardPipelineLight> _GetSceneForwardPipelineLights(cons
+ 	gen.bind_function('hg::DebugSceneExplorer', 'void', ['hg::Scene &scene', 'const char *name'])
+ 
+ 
++def bind_lab_physics(gen):
++	# Bullet NEXT Lab (FL, CL.2): Lab scene files run on any Lab engine, several side by side.
++	gen.add_include('engine/scene_lab_physics.h')
++
++	gen.bind_named_enum('hg::LabBodyKind', ['LBK_Static', 'LBK_Dynamic', 'LBK_Rigid', 'LBK_Sensor', 'LBK_Character', 'LBK_Soft'])
++
++	lab = gen.begin_class('hg::SceneLabPhysics', noncopyable=True)
++	gen.bind_constructor(lab, [])
++
++	gen.bind_static_method(lab, 'GetEngineNames', 'std::vector<std::string>', [])
++	gen.bind_static_method(lab, 'GetSceneNames', 'std::vector<std::string>', ['const std::string &dir'])
++
++	gen.bind_method(lab, 'LoadScene', 'bool', ['const std::string &path', 'const std::string &engine', '?int threads'])
++	gen.bind_method(lab, 'LoadRecording', 'bool', ['const std::string &path', 'const std::string &recording'])
++	gen.bind_method(lab, 'GetError', 'std::string', [])
++	gen.bind_method(lab, 'GetEngineName', 'std::string', [])
++	gen.bind_method(lab, 'GetSceneName', 'std::string', [])
++	gen.bind_method(lab, 'GetFrameCount', 'int', [])
++	gen.bind_method(lab, 'GetFrame', 'int', [])
++	gen.bind_method(lab, 'GetTimeStep', 'float', [])
++	gen.bind_method(lab, 'Step', 'void', [])
++	gen.bind_method(lab, 'GetLastStepMs', 'double', [])
++	gen.bind_method(lab, 'GetFrameHash', 'std::string', [])
++	gen.bind_method(lab, 'GetFinalHash', 'std::string', [])
++
++	gen.bind_method(lab, 'GetBodyCount', 'int', [])
++	gen.bind_method(lab, 'GetBodyKind', 'hg::LabBodyKind', ['int body'])
++	gen.bind_method(lab, 'GetBodyName', 'std::string', ['int body'])
++	gen.bind_method(lab, 'GetBodyWorld', 'hg::Mat4', ['int body'])
++	gen.bind_method(lab, 'GetBodyLinearVelocity', 'hg::Vec3', ['int body'])
++	gen.bind_method(lab, 'GetBodyAngularVelocity', 'hg::Vec3', ['int body'])
++
++	gen.bind_method(lab, 'CreateBodyModel', 'hg::Model', ['int body', 'const bgfx::VertexLayout &layout'])
++	gen.bind_method(lab, 'GetSoftBodyTriangles', 'void', ['int body', 'hg::Vertices &vtx', 'const hg::Color &color'])
++	gen.bind_method(lab, 'GetVehicleCount', 'int', [])
++	gen.bind_method(lab, 'GetWheelCount', 'int', ['int vehicle'])
++	gen.bind_method(lab, 'GetWheelWorld', 'hg::Mat4', ['int vehicle', 'int wheel'])
++	gen.bind_method(lab, 'GetWheelRadius', 'float', ['int vehicle', 'int wheel'])
++	gen.bind_method(lab, 'GetContactLines', 'void', ['hg::Vertices &vtx', 'float length', 'const hg::Color &color'])
++	gen.bind_method(lab, 'GetContactCount', 'int', [])
++
++	gen.bind_method(lab, 'UpdateScene', 'void', ['hg::Scene &scene', 'const std::vector<hg::Node> &nodes', 'hg::time_ns dt'])
++	gen.bind_method(lab, 'SyncNodes', 'void', ['hg::Scene &scene', 'const std::vector<hg::Node> &nodes'])
++
++	gen.bind_method(lab, 'SetLinearVelocity', 'void', ['int body', 'const hg::Vec3 &v'])
++	gen.bind_method(lab, 'SetAngularVelocity', 'void', ['int body', 'const hg::Vec3 &w'])
++	gen.bind_method(lab, 'AddForce', 'void', ['int body', 'const hg::Vec3 &f'])
++	gen.bind_method(lab, 'AddImpulse', 'void', ['int body', 'const hg::Vec3 &j'])
++	gen.bind_method(lab, 'AddImpulseAt', 'void', ['int body', 'const hg::Vec3 &j', 'const hg::Vec3 &world_pos'])
++	gen.bind_method(lab, 'AddTorque', 'void', ['int body', 'const hg::Vec3 &t'])
++	gen.bind_method(lab, 'Teleport', 'void', ['int body', 'const hg::Mat4 &world'])
++	gen.bind_method(lab, 'Wake', 'void', ['int body'])
++	gen.bind_method(lab, 'RaycastFirstHit', 'bool', ['const hg::Vec3 &p0', 'const hg::Vec3 &p1', 'int &body', 'hg::Vec3 &P', 'hg::Vec3 &N'], {'arg_out': ['body', 'P', 'N']})
++	gen.bind_method(lab, 'VehicleControl', 'void', ['int vehicle', 'int wheel', 'float engine', 'float brake', 'float steer'])
++	gen.bind_method(lab, 'CharacterWalk', 'void', ['int body', 'const hg::Vec3 &step'])
++	gen.bind_method(lab, 'CharacterJump', 'void', ['int body'])
++
++	gen.end_class(lab)
++
++
+ def bind_bullet3_physics(gen):
+ 	gen.add_include('engine/scene_bullet3_physics.h')
+ 
+@@ -4533,6 +4593,8 @@ def bind(gen):
+ 	bind_scene(gen)
+ 	if gen.defined('HG_ENABLE_BULLET3_SCENE_PHYSICS'):
+ 		bind_bullet3_physics(gen)
++	if gen.defined('HG_BULLET_NEXT'):
++		bind_lab_physics(gen)
+ 	bind_lua_scene_vm(gen)
+ 	bind_scene_systems(gen)
+ 	bind_input(gen)
+diff --git a/extern/CMakeLists.txt b/extern/CMakeLists.txt
+index 63364fa..b060a76 100644
+--- a/extern/CMakeLists.txt
++++ b/extern/CMakeLists.txt
+@@ -162,7 +162,16 @@ set_target_properties(stb_image_write PROPERTIES FOLDER "harfang/3rdparty")
+ install_cppsdk_external_target(stb_image_write)
+ 
+ # Bullet 3
+-if(HG_ENABLE_BULLET3_SCENE_PHYSICS)
++if(HG_ENABLE_BULLET3_SCENE_PHYSICS AND HG_BULLET_NEXT_DIR)
++	# Bullet NEXT Lab: HARFANG's physics on Bullet NEXT, plus the Lab engines (legacy, next, nextf)
++	# that the Lab physics module (engine/scene_lab_physics) runs side by side.
++	set(BN_BUILD_LAB ON CACHE BOOL "" FORCE)
++	add_subdirectory(${HG_BULLET_NEXT_DIR} bullet_next EXCLUDE_FROM_ALL)
++	add_library(BulletDynamics INTERFACE)
++	target_link_libraries(BulletDynamics INTERFACE bn_bullet_next)
++	add_library(BulletWorldImporter INTERFACE)
++	target_link_libraries(BulletWorldImporter INTERFACE bn_bullet_next_serialize)
++elseif(HG_ENABLE_BULLET3_SCENE_PHYSICS)
+ 	add_subdirectory(bullet3 EXCLUDE_FROM_ALL)
+ 
+ 	set_target_properties(BulletDynamics PROPERTIES FOLDER "harfang/3rdparty/bullet3")
+diff --git a/extern/bgfx/tools.cmake b/extern/bgfx/tools.cmake
+index a42576e..7adedfd 100644
+--- a/extern/bgfx/tools.cmake
++++ b/extern/bgfx/tools.cmake
+@@ -435,4 +435,9 @@ if( ${CMAKE_CXX_COMPILER_ID} STREQUAL "GNU" )
+ 		target_compile_options( glsl-optimizer PUBLIC $<$<CONFIG:RELEASE>:-O2 -DNDEBUG> ) 
+ 		target_compile_options( shaderc PUBLIC $<$<CONFIG:RELEASE>:-O2 -DNDEBUG> ) 
+ 	endif() 
++	# Bullet NEXT Lab: GCC 12+ optimises glsl-optimizer's exec_list into an endless loop
++	# (remove_unlinked_functions); the shader compiler is a build tool, so it runs unoptimised.
++	if( CMAKE_CXX_COMPILER_VERSION VERSION_GREATER_EQUAL 12 )
++		target_compile_options( glsl-optimizer PRIVATE -O0 )
++	endif()
+ endif()
+\ No newline at end of file
+diff --git a/harfang/CMakeLists.txt b/harfang/CMakeLists.txt
+index cf457ee..b1cbb73 100644
+--- a/harfang/CMakeLists.txt
++++ b/harfang/CMakeLists.txt
+@@ -22,3 +22,33 @@ if(HG_BUILD_DOCS)
+ 		VERBATIM
+ 	)
+ endif()
++
++# Bullet NEXT Lab viewer: two Lab engines side by side (FL, CL.9).
++if(HG_BULLET_NEXT_DIR AND HG_ENABLE_BULLET3_SCENE_PHYSICS)
++	add_executable(bnl_viewer ${HG_BULLET_NEXT_DIR}/lab/viewer/bnl_viewer.cpp)
++	target_link_libraries(bnl_viewer PRIVATE engine foundation platform)
++	target_compile_definitions(bnl_viewer PRIVATE BN_SCENES_DIR="${HG_BULLET_NEXT_DIR}/lab/scenes")
++	if(UNIX)
++		target_link_libraries(bnl_viewer PRIVATE pthread)
++	endif()
++	set_target_properties(bnl_viewer PROPERTIES FOLDER "harfang/lab")
++	if(CMAKE_SYSTEM_NAME STREQUAL "Emscripten")
++		# Browser build (FL, CL.10): one file holding the program, the scenes and the shaders
++		# (compiled beforehand with assetc -api GLES into BNL_WEB_ASSETS).
++		set(BNL_WEB_ASSETS "" CACHE PATH "Lab viewer shaders compiled for WebGL (assetc -api GLES)")
++		set_target_properties(bnl_viewer PROPERTIES SUFFIX ".js")
++		target_link_options(bnl_viewer PRIVATE
++			-sSINGLE_FILE=1 -sALLOW_MEMORY_GROWTH=1 -sSTACK_SIZE=4MB -sUSE_SDL=2 -sMAX_WEBGL_VERSION=2 -sMIN_WEBGL_VERSION=2
++			-sENVIRONMENT=web -sEXPORT_NAME=BulletNextLab -sMODULARIZE=1 -sSTANDALONE_WASM=0 # a page, not a WASI program
++			"--embed-file=${HG_BULLET_NEXT_DIR}/lab/scenes@/scenes"
++			"--embed-file=${BNL_WEB_ASSETS}@/assets_compiled")
++	endif()
++	# The viewer's shaders are compiled next to it (assets_compiled) by assetc with bgfx's shaderc.
++	if(HG_BUILD_ASSETC)
++		add_dependencies(bnl_viewer assetc shaderc)
++		add_custom_command(TARGET bnl_viewer POST_BUILD
++			COMMAND $<TARGET_FILE:assetc> -toolchain $<TARGET_FILE_DIR:shaderc> -q
++				${HG_BULLET_NEXT_DIR}/lab/viewer/assets $<TARGET_FILE_DIR:bnl_viewer>/assets_compiled
++			COMMENT "Compiling the Lab viewer shaders")
++	endif()
++endif()
+diff --git a/harfang/engine/CMakeLists.txt b/harfang/engine/CMakeLists.txt
+index 75c8bc1..0286ec5 100644
+--- a/harfang/engine/CMakeLists.txt
++++ b/harfang/engine/CMakeLists.txt
+@@ -114,6 +114,10 @@ endif()
+ if(HG_ENABLE_BULLET3_SCENE_PHYSICS)
+ 	list(APPEND SRCS scene_bullet3_physics.cpp)
+ 	list(APPEND HDRS scene_bullet3_physics.h)
++	if(HG_BULLET_NEXT_DIR)
++		list(APPEND SRCS scene_lab_physics.cpp)
++		list(APPEND HDRS scene_lab_physics.h)
++	endif()
+ endif()
+ 
+ add_library(engine STATIC ${SRCS} ${HDRS})
+@@ -144,6 +148,9 @@ endif()
+ 
+ if(HG_ENABLE_BULLET3_SCENE_PHYSICS)
+ 	target_link_libraries(engine PRIVATE BulletDynamics BulletWorldImporter)
++	if(HG_BULLET_NEXT_DIR)
++		target_link_libraries(engine PRIVATE bnl_engines)
++	endif()
+ endif()
+ 
+ if(MSVC)
+diff --git a/harfang/engine/scene.cpp b/harfang/engine/scene.cpp
+index b8c9314..662297f 100644
+--- a/harfang/engine/scene.cpp
++++ b/harfang/engine/scene.cpp
+@@ -915,7 +915,7 @@ RigidBodyType Scene::GetRigidBodyType(ComponentRef ref) const {
+ 
+ float Scene::GetRigidBodyLinearDamping(ComponentRef ref) const {
+ 	if (auto rb = GetComponent_(rigid_bodies, ref))
+-		return unpack_float<uint8_t>(rb->linear_damping);
++		return rb->linear_damping;
+ 
+ 	warn("Invalid rigid body");
+ 	return 0.f;
+@@ -923,14 +923,14 @@ float Scene::GetRigidBodyLinearDamping(ComponentRef ref) const {
+ 
+ void Scene::SetRigidBodyLinearDamping(ComponentRef ref, float damping) {
+ 	if (auto rb = GetComponent_(rigid_bodies, ref))
+-		rb->linear_damping = pack_float<uint8_t>(damping);
++		rb->linear_damping = damping;
+ 	else
+ 		warn("Invalid rigid body");
+ }
+ 
+ float Scene::GetRigidBodyAngularDamping(ComponentRef ref) const {
+ 	if (auto rb = GetComponent_(rigid_bodies, ref))
+-		return unpack_float<uint8_t>(rb->angular_damping);
++		return rb->angular_damping;
+ 
+ 	warn("Invalid rigid body");
+ 	return {};
+@@ -938,14 +938,14 @@ float Scene::GetRigidBodyAngularDamping(ComponentRef ref) const {
+ 
+ void Scene::SetRigidBodyAngularDamping(ComponentRef ref, float damping) {
+ 	if (auto rb = GetComponent_(rigid_bodies, ref))
+-		rb->angular_damping = pack_float<uint8_t>(damping);
++		rb->angular_damping = damping;
+ 	else
+ 		warn("Invalid rigid body");
+ }
+ 
+ float Scene::GetRigidBodyRestitution(ComponentRef ref) const {
+ 	if (const auto rb = GetComponent_(rigid_bodies, ref))
+-		return unpack_float<uint8_t>(rb->restitution);
++		return rb->restitution;
+ 
+ 	warn("Invalid rigid body");
+ 	return 0.f;
+@@ -953,14 +953,14 @@ float Scene::GetRigidBodyRestitution(ComponentRef ref) const {
+ 
+ void Scene::SetRigidBodyRestitution(ComponentRef ref, float restitution) {
+ 	if (auto rb = GetComponent_(rigid_bodies, ref))
+-		rb->restitution = pack_float<uint8_t>(restitution);
++		rb->restitution = restitution;
+ 	else
+ 		warn("Invalid rigid body");
+ }
+ 
+ float Scene::GetRigidBodyFriction(ComponentRef ref) const {
+ 	if (const auto rb = GetComponent_(rigid_bodies, ref))
+-		return unpack_float<uint8_t>(rb->friction);
++		return rb->friction;
+ 
+ 	warn("Invalid rigid body");
+ 	return 0.5f;
+@@ -968,14 +968,14 @@ float Scene::GetRigidBodyFriction(ComponentRef ref) const {
+ 
+ void Scene::SetRigidBodyFriction(ComponentRef ref, float friction) {
+ 	if (auto rb = GetComponent_(rigid_bodies, ref))
+-		rb->friction = pack_float<uint8_t>(friction);
++		rb->friction = friction;
+ 	else
+ 		warn("Invalid rigid body");
+ }
+ 
+ float Scene::GetRigidBodyRollingFriction(ComponentRef ref) const {
+ 	if (const auto rb = GetComponent_(rigid_bodies, ref))
+-		return unpack_float<uint8_t>(rb->rolling_friction);
++		return rb->rolling_friction;
+ 
+ 	warn("Invalid rigid body");
+ 	return 0.f;
+@@ -983,7 +983,7 @@ float Scene::GetRigidBodyRollingFriction(ComponentRef ref) const {
+ 
+ void Scene::SetRigidBodyRollingFriction(ComponentRef ref, float rolling_friction) {
+ 	if (auto rb = GetComponent_(rigid_bodies, ref))
+-		rb->rolling_friction = pack_float<uint8_t>(rolling_friction);
++		rb->rolling_friction = rolling_friction;
+ 	else
+ 		warn("Invalid rigid body");
+ }
+diff --git a/harfang/engine/scene.h b/harfang/engine/scene.h
+index 8e8384e..1824e00 100644
+--- a/harfang/engine/scene.h
++++ b/harfang/engine/scene.h
+@@ -773,15 +773,15 @@ private:
+ 		float shadow_bias{default_shadow_bias};
+ 	};
+ 
+-	struct RigidBody_ { // 6B
++	struct RigidBody_ { // Bullet NEXT Lab: full-precision values (HARFANG stored them in 8 bits)
+ 		RigidBodyType type{RBT_Dynamic};
+ 
+-		uint8_t linear_damping{pack_float<uint8_t>(0.f)};
+-		uint8_t angular_damping{pack_float<uint8_t>(0.f)};
++		float linear_damping{0.f};
++		float angular_damping{0.f};
+ 
+-		uint8_t restitution{pack_float<uint8_t>(0.f)};
+-		uint8_t friction{pack_float<uint8_t>(0.5f)};
+-		uint8_t rolling_friction{pack_float<uint8_t>(0.f)};
++		float restitution{0.f};
++		float friction{0.5f};
++		float rolling_friction{0.f};
+ 	};
+ 
+ 	generational_vector_list<Transform_> transforms;
+@@ -831,7 +831,7 @@ private:
+ 	friend void LoadComponent(Object_ *data_, const Reader &ir, const Handle &h, const Reader &deps_ir, const ReadProvider &deps_ip,
+ 		PipelineResources &resources, const PipelineInfo &pipeline, bool queue_model_loads, bool queue_texture_loads, bool do_not_load_resources, bool silent);
+ 	friend void LoadComponent(Light_ *data_, const Reader &ir, const Handle &h);
+-	friend void LoadComponent(RigidBody_ *data_, const Reader &ir, const Handle &h);
++	friend void LoadComponent(RigidBody_ *data_, const Reader &ir, const Handle &h, uint32_t version);
+ 	friend void LoadComponent(Collision_ *data_, const Reader &ir, const Handle &h);
+ 	friend void LoadComponent(Instance_ *data_, const Reader &ir, const Handle &h);
+ 	friend void LoadComponent(Script_ *data_, const Reader &ir, const Handle &h);
+diff --git a/harfang/engine/scene_bullet3_physics.cpp b/harfang/engine/scene_bullet3_physics.cpp
+index 67a171a..0b62fde 100644
+--- a/harfang/engine/scene_bullet3_physics.cpp
++++ b/harfang/engine/scene_bullet3_physics.cpp
+@@ -22,6 +22,14 @@
+ 
+ #include <Serialize/BulletWorldImporter/btBulletWorldImporter.h>
+ 
++#if HG_BULLET_NEXT
++// Bullet NEXT Lab: HARFANG's physics runs on Bullet NEXT with the F1 features, as BGE NEXT uses
++// them: deterministic pair order, SAT and one-shot contact reduction for triangles, hull clipping,
++// active mesh edges (no ghost bumps) and shape-cast CCD for fast bodies.
++#include <BulletCollision/CollisionDispatch/btConvexConcaveCollisionAlgorithm.h>
++#include <BulletDynamics/Dynamics/btNextFeatures.h>
++#endif
++
+ #include <memory>
+ 
+ namespace hg {
+@@ -126,6 +134,9 @@ SceneBullet3Physics::SceneBullet3Physics(int threads) {
+ #endif
+ 
+ 	world->setGravity(btVector3(0.f, -9.81f, 0.f));
++#if HG_BULLET_NEXT
++	btNextConfigureWorld(world.get());
++#endif
+ 
+ 	auto debug_draw = new Bullet3DebugDraw;
+ 	debug_draw->setDebugMode(btIDebugDraw::DBG_DrawWireframe | btIDebugDraw::DBG_DrawContactPoints | btIDebugDraw::DBG_DrawConstraints |
+@@ -319,6 +330,14 @@ void SceneBullet3Physics::NodeCreatePhysics(const Node &node, const Reader &ir,
+ 
+ 		// add to world
+ 		world->addRigidBody(_node.body);
++
++#if HG_BULLET_NEXT
++		btNextEnableHullClipping(root_shape);
++		if (type == RBT_Dynamic)
++			btNextConfigureCcd(_node.body, true);
++		else
++			btNextEnableActiveEdges(_node.body); // meshes only; other shapes are left alone
++#endif
+ 	}
+ }
+ 
+@@ -395,6 +414,11 @@ void SceneBullet3Physics::StepSimulation(time_ns dt, time_ns step, int max_step)
+ 	was_teleported.clear();
+ 
+ 	//
++#if HG_BULLET_NEXT
++	// Process-wide switches of Bullet NEXT; Lab engines in the same program may have changed them.
++	btNextSetLinkedCollisionWhileEnabled(false);
++	gBnMeshContactReduction = true;
++#endif
+ 	const auto substep_count = world->stepSimulation(time_to_sec_f(dt), max_step, time_to_sec_f(step));
+ 
+ 	// if substep was taken commit to prv_world_mtx
+diff --git a/harfang/engine/scene_lab_physics.cpp b/harfang/engine/scene_lab_physics.cpp
+new file mode 100644
+index 0000000..9bc63b4
+--- /dev/null
++++ b/harfang/engine/scene_lab_physics.cpp
+@@ -0,0 +1,264 @@
++// Bullet NEXT Lab - the Lab physics module of HARFANG (FL, CL.2).
++#include "engine/scene_lab_physics.h"
++#include "engine/scene.h"
++#include "engine/vertex.h"
++
++#include "foundation/format.h"
++#include "foundation/log.h"
++
++#include "bnl_engine.h"
++#include "bnl_mesh.h"
++
++#include <algorithm>
++#include <cmath>
++#include <cstdio>
++
++namespace hg {
++
++namespace {
++
++// Scene axes (Z up) <-> HARFANG axes (Y up): swap y and z. The swap is its own inverse.
++Vec3 ToHg(const bnl::Vec3 &v) { return {v.x, v.z, v.y}; }
++bnl::Vec3 ToLab(const Vec3 &v) { return bnl::Vec3(v.x, v.z, v.y); }
++
++Mat4 ToHg(const bnl::Xform &x) {
++	const float X = x.q.x, Y = x.q.y, Z = x.q.z, W = x.q.w;
++	const float r[3][3] = {{1 - 2 * (Y * Y + Z * Z), 2 * (X * Y - W * Z), 2 * (X * Z + W * Y)},
++		{2 * (X * Y + W * Z), 1 - 2 * (X * X + Z * Z), 2 * (Y * Z - W * X)},
++		{2 * (X * Z - W * Y), 2 * (Y * Z + W * X), 1 - 2 * (X * X + Y * Y)}};
++	const int s[3] = {0, 2, 1};
++	Mat4 m;
++	for (int i = 0; i < 3; ++i) {
++		for (int j = 0; j < 3; ++j)
++			m.m[i][j] = r[s[i]][s[j]];
++	}
++	const Vec3 t = ToHg(x.p);
++	m.m[0][3] = t.x;
++	m.m[1][3] = t.y;
++	m.m[2][3] = t.z;
++	return m;
++}
++
++bnl::Xform ToLab(const Mat4 &m) {
++	// Rotation part (assumed orthonormal) back to the scene axes, then to a quaternion.
++	const int s[3] = {0, 2, 1};
++	float r[3][3];
++	for (int i = 0; i < 3; ++i)
++		for (int j = 0; j < 3; ++j)
++			r[s[i]][s[j]] = m.m[i][j];
++	bnl::Xform x;
++	x.p = ToLab(Vec3(m.m[0][3], m.m[1][3], m.m[2][3]));
++	const float tr = r[0][0] + r[1][1] + r[2][2];
++	bnl::Quat &q = x.q;
++	if (tr > 0) {
++		const float k = 0.5f / std::sqrt(tr + 1);
++		q = bnl::Quat((r[2][1] - r[1][2]) * k, (r[0][2] - r[2][0]) * k, (r[1][0] - r[0][1]) * k, 0.25f / k);
++	} else if (r[0][0] > r[1][1] && r[0][0] > r[2][2]) {
++		const float k = 2 * std::sqrt(1 + r[0][0] - r[1][1] - r[2][2]);
++		q = bnl::Quat(0.25f * k, (r[0][1] + r[1][0]) / k, (r[0][2] + r[2][0]) / k, (r[2][1] - r[1][2]) / k);
++	} else if (r[1][1] > r[2][2]) {
++		const float k = 2 * std::sqrt(1 + r[1][1] - r[0][0] - r[2][2]);
++		q = bnl::Quat((r[0][1] + r[1][0]) / k, 0.25f * k, (r[1][2] + r[2][1]) / k, (r[0][2] - r[2][0]) / k);
++	} else {
++		const float k = 2 * std::sqrt(1 + r[2][2] - r[0][0] - r[1][1]);
++		q = bnl::Quat((r[0][2] + r[2][0]) / k, (r[1][2] + r[2][1]) / k, 0.25f * k, (r[1][0] - r[0][1]) / k);
++	}
++	return x;
++}
++
++std::string Hex(bnl::u64 h) {
++	char buf[24];
++	std::snprintf(buf, sizeof(buf), "%016llx", (unsigned long long)h);
++	return buf;
++}
++
++} // namespace
++
++SceneLabPhysics::SceneLabPhysics() = default;
++SceneLabPhysics::~SceneLabPhysics() = default;
++
++std::vector<std::string> SceneLabPhysics::GetEngineNames() { return bnl::engineNames(); }
++std::vector<std::string> SceneLabPhysics::GetSceneNames(const std::string &dir) { return bnl::listScenes(dir); }
++
++bool SceneLabPhysics::LoadRecording(const std::string &path, const std::string &recording) {
++	error.clear();
++	std::unique_ptr<bnl::SceneDesc> d(new bnl::SceneDesc);
++	if (!bnl::loadScene(path, *d, error))
++		return false;
++	std::unique_ptr<bnl::Engine> e(bnl::createEngine("replay"));
++	bnl::EngineOptions o;
++	o.recording = recording;
++	if (!e->build(*d, o, error))
++		return false;
++	desc = std::move(d);
++	engine = std::move(e);
++	return true;
++}
++
++bool SceneLabPhysics::LoadScene(const std::string &path, const std::string &engine_name, int threads) {
++	error.clear();
++	std::unique_ptr<bnl::SceneDesc> d(new bnl::SceneDesc);
++	if (!bnl::loadScene(path, *d, error))
++		return false;
++	std::unique_ptr<bnl::Engine> e(bnl::createEngine(engine_name));
++	if (!e) {
++		error = "engine '" + engine_name + "' is not part of this build";
++		return false;
++	}
++	bnl::EngineOptions o;
++	o.threads = threads;
++	if (!e->build(*d, o, error))
++		return false;
++	desc = std::move(d);
++	engine = std::move(e);
++	return true;
++}
++
++std::string SceneLabPhysics::GetEngineName() const { return engine ? engine->backend() : ""; }
++std::string SceneLabPhysics::GetSceneName() const { return desc ? desc->name : ""; }
++int SceneLabPhysics::GetFrameCount() const { return desc ? desc->frames : 0; }
++int SceneLabPhysics::GetFrame() const { return engine ? engine->frame() : 0; }
++float SceneLabPhysics::GetTimeStep() const { return desc ? 1.f / desc->settings.ticrate : 1.f / 60.f; }
++
++void SceneLabPhysics::Step() {
++	if (engine)
++		engine->advance();
++}
++
++double SceneLabPhysics::GetLastStepMs() const { return engine ? engine->lastStepMicros() / 1000.0 : 0.0; }
++std::string SceneLabPhysics::GetFrameHash() const { return Hex(engine ? engine->frameHash() : 0); }
++std::string SceneLabPhysics::GetFinalHash() const { return Hex(engine ? engine->finalHash() : 0); }
++
++int SceneLabPhysics::GetBodyCount() const { return engine ? engine->bodyCount() : 0; }
++LabBodyKind SceneLabPhysics::GetBodyKind(int i) const { return desc ? LabBodyKind(desc->bodies[i].kind) : LBK_Static; }
++std::string SceneLabPhysics::GetBodyName(int i) const { return desc ? desc->bodies[i].name : ""; }
++
++Mat4 SceneLabPhysics::GetBodyWorld(int i) const {
++	const bnl::BodyState s = engine->body(i);
++	bnl::Xform x;
++	x.p = s.p;
++	x.q = s.q;
++	return ToHg(x);
++}
++
++Vec3 SceneLabPhysics::GetBodyLinearVelocity(int i) const { return ToHg(engine->body(i).lin); }
++Vec3 SceneLabPhysics::GetBodyAngularVelocity(int i) const {
++	// An angular velocity is an axial vector: the axis swap (a mirror) also flips its sign.
++	const Vec3 w = ToHg(engine->body(i).ang);
++	return {-w.x, -w.y, -w.z};
++}
++
++Model SceneLabPhysics::CreateBodyModel(int i, const bgfx::VertexLayout &layout) const {
++	bnl::TriMesh mesh;
++	bnl::bodyMesh(desc->bodies[i], mesh);
++	ModelBuilder builder;
++	for (size_t t = 0; t + 2 < mesh.tris.size(); t += 3) {
++		const Vec3 a = ToHg(mesh.verts[mesh.tris[t]]), b = ToHg(mesh.verts[mesh.tris[t + 1]]), c = ToHg(mesh.verts[mesh.tris[t + 2]]);
++		const Vec3 n = Normalize(Cross(c - a, b - a)); // winding is mirrored by the axis swap
++		const auto ia = builder.AddVertex(MakeVertex(a, n)), ib = builder.AddVertex(MakeVertex(b, n)), ic = builder.AddVertex(MakeVertex(c, n));
++		builder.AddTriangle(ia, ic, ib);
++	}
++	builder.EndList(0);
++	return builder.MakeModel(layout);
++}
++
++void SceneLabPhysics::GetSoftBodyTriangles(int i, Vertices &vtx, const Color &color) const {
++	vtx.Clear();
++	if (!desc || desc->bodies[i].kind != bnl::kSoft)
++		return;
++	std::vector<bnl::Vec3> nodes;
++	engine->softNodes(i, nodes);
++	bnl::TriMesh mesh;
++	bnl::bodyMesh(desc->bodies[i], mesh);
++	size_t n = 0;
++	for (size_t t = 0; t + 2 < mesh.tris.size(); t += 3) {
++		const int ids[3] = {mesh.tris[t], mesh.tris[t + 2], mesh.tris[t + 1]};
++		if (ids[0] >= (int)nodes.size() || ids[1] >= (int)nodes.size() || ids[2] >= (int)nodes.size())
++			continue;
++		const Vec3 a = ToHg(nodes[ids[0]]), b = ToHg(nodes[ids[1]]), c = ToHg(nodes[ids[2]]);
++		const Vec3 nrm = Normalize(Cross(b - a, c - a));
++		const Vec3 p[3] = {a, b, c};
++		for (int k = 0; k < 3; ++k)
++			vtx.Begin(n++).SetPos(p[k]).SetNormal(nrm).SetColor0(color).End();
++	}
++}
++
++int SceneLabPhysics::GetVehicleCount() const { return engine ? engine->vehicleCount() : 0; }
++int SceneLabPhysics::GetWheelCount(int v) const { return engine ? engine->wheelCount(v) : 0; }
++Mat4 SceneLabPhysics::GetWheelWorld(int v, int w) const { return ToHg(engine->wheel(v, w)); }
++
++float SceneLabPhysics::GetWheelRadius(int v, int w) const {
++	int k = 0;
++	for (const auto &wd : desc->wheels)
++		if (wd.vehicle == v && k++ == w)
++			return wd.radius;
++	return 0.f;
++}
++
++int SceneLabPhysics::GetContactCount() const {
++	if (!engine)
++		return 0;
++	std::vector<bnl::Contact> c;
++	engine->contacts(c);
++	return int(c.size());
++}
++
++void SceneLabPhysics::GetContactLines(Vertices &vtx, float length, const Color &color) const {
++	vtx.Clear();
++	if (!engine)
++		return;
++	std::vector<bnl::Contact> c;
++	engine->contacts(c);
++	size_t n = 0;
++	for (const auto &k : c) {
++		const Vec3 p = ToHg(k.pb), q = p + ToHg(k.n) * length;
++		vtx.Begin(n++).SetPos(p).SetColor0(color).End();
++		vtx.Begin(n++).SetPos(q).SetColor0(color).End();
++	}
++}
++
++void SceneLabPhysics::UpdateScene(Scene &scene, const std::vector<Node> &nodes, time_ns dt) {
++	scene.StorePreviousWorldMatrices();
++	scene.ReadyWorldMatrices();
++	scene.UpdatePlayingAnims(dt);
++	Step();
++	SyncNodes(scene, nodes);
++	scene.ComputeWorldMatrices();
++	scene.FixupPreviousWorldMatrices();
++}
++
++void SceneLabPhysics::SyncNodes(Scene &scene, const std::vector<Node> &nodes) const {
++	if (!engine)
++		return;
++	const int count = std::min(int(nodes.size()), engine->bodyCount());
++	for (int i = 0; i < count; ++i)
++		if (nodes[i].IsValid())
++			scene.SetNodeWorldMatrix(nodes[i].ref, GetBodyWorld(i));
++}
++
++void SceneLabPhysics::SetLinearVelocity(int b, const Vec3 &v) { engine->setLinearVelocity(b, ToLab(v)); }
++void SceneLabPhysics::SetAngularVelocity(int b, const Vec3 &w) { engine->setAngularVelocity(b, ToLab(-w)); }
++void SceneLabPhysics::AddForce(int b, const Vec3 &f) { engine->applyForce(b, ToLab(f)); }
++void SceneLabPhysics::AddImpulse(int b, const Vec3 &j) { engine->applyImpulse(b, ToLab(j)); }
++void SceneLabPhysics::AddImpulseAt(int b, const Vec3 &j, const Vec3 &p) { engine->applyImpulseAt(b, ToLab(j), ToLab(p)); }
++void SceneLabPhysics::AddTorque(int b, const Vec3 &t) { engine->applyTorque(b, ToLab(-t)); }
++void SceneLabPhysics::Teleport(int b, const Mat4 &world) { engine->setTransform(b, ToLab(world)); }
++void SceneLabPhysics::Wake(int b) { engine->wake(b); }
++
++bool SceneLabPhysics::RaycastFirstHit(const Vec3 &p0, const Vec3 &p1, int &body, Vec3 &P, Vec3 &N) const {
++	bnl::RayHit h;
++	if (!engine || !engine->raycast(ToLab(p0), ToLab(p1), h)) {
++		body = -1;
++		return false;
++	}
++	body = h.body;
++	P = ToHg(h.p);
++	N = ToHg(h.n);
++	return true;
++}
++
++void SceneLabPhysics::VehicleControl(int v, int w, float e, float b, float s) { engine->vehicleControl(v, w, e, b, s); }
++void SceneLabPhysics::CharacterWalk(int b, const Vec3 &step) { engine->characterWalk(b, ToLab(step)); }
++void SceneLabPhysics::CharacterJump(int b) { engine->characterJump(b); }
++
++} // namespace hg
+diff --git a/harfang/engine/scene_lab_physics.h b/harfang/engine/scene_lab_physics.h
+new file mode 100644
+index 0000000..4da2b8b
+--- /dev/null
++++ b/harfang/engine/scene_lab_physics.h
+@@ -0,0 +1,105 @@
++// Bullet NEXT Lab - the Lab physics module of HARFANG (FL, CL.2).
++// Runs a Lab scene file on one Lab engine (legacy, next, nextf...) inside HARFANG. Several
++// SceneLabPhysics can run side by side in one program. The physics world keeps the scene's axes
++// (Z up); everything this class returns is in HARFANG's axes (Y up): x stays, y and z swap.
++#pragma once
++
++#include "engine/model_builder.h"
++#include "engine/node.h"
++#include "engine/render_pipeline.h"
++#include "foundation/color.h"
++#include "foundation/matrix4.h"
++#include "foundation/time.h"
++#include "foundation/vector3.h"
++
++#include <memory>
++#include <string>
++#include <vector>
++
++namespace bnl {
++class Engine;
++struct SceneDesc;
++} // namespace bnl
++
++namespace hg {
++
++class Scene;
++
++enum LabBodyKind { LBK_Static, LBK_Dynamic, LBK_Rigid, LBK_Sensor, LBK_Character, LBK_Soft };
++
++class SceneLabPhysics {
++public:
++	SceneLabPhysics();
++	~SceneLabPhysics();
++
++	/// Engines linked into this build ("legacy", "next", "nextf"...).
++	static std::vector<std::string> GetEngineNames();
++	/// Scene files listed by <dir>/index.json.
++	static std::vector<std::string> GetSceneNames(const std::string &dir);
++
++	/// Loads a Lab scene file and builds it on the named engine (threads: -1 = BN_THREADS variable).
++	bool LoadScene(const std::string &path, const std::string &engine, int threads = -1);
++	/// Loads a Lab scene file and plays a recording of it (.bnl, written by any Lab program).
++	bool LoadRecording(const std::string &path, const std::string &recording);
++	const std::string &GetError() const { return error; }
++	std::string GetEngineName() const;
++	std::string GetSceneName() const;
++
++	int GetFrameCount() const; // the scene's length in frames
++	int GetFrame() const;      // frames stepped so far
++	float GetTimeStep() const; // seconds per frame
++
++	/// One frame: the scene's scripted actions, then one fixed step.
++	void Step();
++	double GetLastStepMs() const;
++	/// Hashes as the harness prints them (16 hex digits).
++	std::string GetFrameHash() const;
++	std::string GetFinalHash() const;
++
++	int GetBodyCount() const;
++	LabBodyKind GetBodyKind(int body) const;
++	std::string GetBodyName(int body) const;
++	Mat4 GetBodyWorld(int body) const;
++	Vec3 GetBodyLinearVelocity(int body) const;
++	Vec3 GetBodyAngularVelocity(int body) const;
++
++	/// Drawing: a flat-shaded model of the body in its own space (not for soft bodies), and the
++	/// current triangles of a soft body in world space.
++	Model CreateBodyModel(int body, const bgfx::VertexLayout &layout) const;
++	void GetSoftBodyTriangles(int body, Vertices &vtx, const Color &color) const;
++	int GetWheelCount(int vehicle) const;
++	Mat4 GetWheelWorld(int vehicle, int wheel) const;
++	float GetWheelRadius(int vehicle, int wheel) const;
++	int GetVehicleCount() const;
++	/// Contact points as line pairs (point, point + normal * length) for drawing.
++	void GetContactLines(Vertices &vtx, float length, const Color &color) const;
++	int GetContactCount() const;
++
++	/// A game frame, as SceneUpdateSystems does for HARFANG's own physics: scene animations, one
++	/// physics frame, the nodes put on the bodies (node i follows body i), then world matrices.
++	void UpdateScene(Scene &scene, const std::vector<Node> &nodes, time_ns dt);
++	/// Puts the HARFANG nodes on the bodies. Only between Scene::ReadyWorldMatrices and
++	/// Scene::ComputeWorldMatrices (UpdateScene does that).
++	void SyncNodes(Scene &scene, const std::vector<Node> &nodes) const;
++
++	/// Game control
++	void SetLinearVelocity(int body, const Vec3 &v);
++	void SetAngularVelocity(int body, const Vec3 &w);
++	void AddForce(int body, const Vec3 &f);
++	void AddImpulse(int body, const Vec3 &j);
++	void AddImpulseAt(int body, const Vec3 &j, const Vec3 &world_pos);
++	void AddTorque(int body, const Vec3 &t);
++	void Teleport(int body, const Mat4 &world);
++	void Wake(int body);
++	bool RaycastFirstHit(const Vec3 &p0, const Vec3 &p1, int &body, Vec3 &P, Vec3 &N) const;
++	void VehicleControl(int vehicle, int wheel, float engine, float brake, float steer);
++	void CharacterWalk(int body, const Vec3 &step);
++	void CharacterJump(int body);
++
++private:
++	std::unique_ptr<bnl::SceneDesc> desc;
++	std::unique_ptr<bnl::Engine> engine;
++	std::string error;
++};
++
++} // namespace hg
+diff --git a/harfang/engine/scene_load_binary.cpp b/harfang/engine/scene_load_binary.cpp
+index 3795f50..6d579d0 100644
+--- a/harfang/engine/scene_load_binary.cpp
++++ b/harfang/engine/scene_load_binary.cpp
+@@ -160,13 +160,21 @@ void LoadComponent(Scene::Light_ *data_, const Reader &ir, const Handle &h) {
+ 	Read(ir, h, data_->shadow_bias);
+ }
+ 
+-void LoadComponent(Scene::RigidBody_ *data_, const Reader &ir, const Handle &h) {
++void LoadComponent(Scene::RigidBody_ *data_, const Reader &ir, const Handle &h, uint32_t version) {
+ 	Read(ir, h, data_->type);
+-	Read(ir, h, data_->linear_damping);
+-	Read(ir, h, data_->angular_damping);
+-	Read(ir, h, data_->restitution);
+-	Read(ir, h, data_->friction);
+-	Read(ir, h, data_->rolling_friction);
++	if (version >= 10) {
++		Read(ir, h, data_->linear_damping);
++		Read(ir, h, data_->angular_damping);
++		Read(ir, h, data_->restitution);
++		Read(ir, h, data_->friction);
++		Read(ir, h, data_->rolling_friction);
++	} else { // version 9 stored these values in 8 bits
++		data_->linear_damping = unpack_float(Read<uint8_t>(ir, h));
++		data_->angular_damping = unpack_float(Read<uint8_t>(ir, h));
++		data_->restitution = unpack_float(Read<uint8_t>(ir, h));
++		data_->friction = unpack_float(Read<uint8_t>(ir, h));
++		data_->rolling_friction = unpack_float(Read<uint8_t>(ir, h));
++	}
+ }
+ 
+ void LoadComponent(Scene::Collision_ *data_, const Reader &ir, const Handle &h) {
+@@ -232,7 +240,7 @@ static void SkipProbe(const Reader &ir, const Handle &h) {
+ }
+ 
+ //
+-uint32_t GetSceneBinaryFormatVersion() { return 9; }
++uint32_t GetSceneBinaryFormatVersion() { return 10; }
+ 
+ bool Scene::Save_binary(
+ 	const Writer &iw, const Handle &h, const PipelineResources &resources, uint32_t save_flags, const std::vector<NodeRef> *nodes_to_save) const {
+@@ -253,6 +261,7 @@ bool Scene::Save_binary(
+ 		version 7: store animation chunk size so that it can be jumped over without parsing its content
+ 		version 8: save collision properties
+ 		version 9: save environment probe
++		version 10: rigid body damping, restitution and friction as floats (Bullet NEXT Lab)
+ 	*/
+ 	const auto version = GetSceneBinaryFormatVersion();
+ 	Write<uint32_t>(iw, h, version);
+@@ -569,7 +578,7 @@ bool Scene::Load_binary(const Reader &ir, const Handle &h, const char *name, con
+ 	}
+ 
+ 	const auto version = Read<uint32_t>(ir, h);
+-	if (version != GetSceneBinaryFormatVersion()) {
++	if (version != GetSceneBinaryFormatVersion() && version != 9) {
+ 		if (!silent)
+ 			warn(format("Cannot load scene '%1', unsupported binary version %2").arg(name).arg(version));
+ 		return false;
+@@ -616,7 +625,7 @@ bool Scene::Load_binary(const Reader &ir, const Handle &h, const char *name, con
+ 		rigid_body_refs.resize(rigid_body_count);
+ 		for (size_t i = 0; i < rigid_body_count; ++i) {
+ 			const auto ref = rigid_body_refs[i] = CreateRigidBody().ref;
+-			LoadComponent(&rigid_bodies[ref.idx], ir, h);
++			LoadComponent(&rigid_bodies[ref.idx], ir, h, version);
+ 		}
+ 
+ 		const auto collision_count = Read<uint32_t>(ir, h);
+diff --git a/harfang/engine/scene_load_json.cpp b/harfang/engine/scene_load_json.cpp
+index eb732ec..e3a6b05 100644
+--- a/harfang/engine/scene_load_json.cpp
++++ b/harfang/engine/scene_load_json.cpp
+@@ -73,11 +73,11 @@ void SaveComponent(const Scene::Light_ *data_, json &js) {
+ 
+ void SaveComponent(const Scene::RigidBody_ *data_, json &js) {
+ 	js["type"] = data_->type;
+-	js["linear_damping"] = unpack_float(data_->linear_damping);
+-	js["angular_damping"] = unpack_float(data_->angular_damping);
+-	js["restitution"] = unpack_float(data_->restitution);
+-	js["friction"] = unpack_float(data_->friction);
+-	js["rolling_friction"] = unpack_float(data_->rolling_friction);
++	js["linear_damping"] = data_->linear_damping;
++	js["angular_damping"] = data_->angular_damping;
++	js["restitution"] = data_->restitution;
++	js["friction"] = data_->friction;
++	js["rolling_friction"] = data_->rolling_friction;
+ }
+ 
+ void SaveComponent(const Scene::Collision_ *data_, json &js) {
+@@ -202,15 +202,15 @@ void LoadComponent(Scene::Light_ *data_, const json &js) {
+ void LoadComponent(Scene::RigidBody_ *data_, const json &js) {
+ 	data_->type = js.at("type");
+ 	if (js.find("linear_damping") != std::end(js))
+-		data_->linear_damping = pack_float<uint8_t>(js.at("linear_damping").get<float>());
++		data_->linear_damping = js.at("linear_damping").get<float>();
+ 	if (js.find("angular_damping") != std::end(js))
+-		data_->angular_damping = pack_float<uint8_t>(js.at("angular_damping").get<float>());
++		data_->angular_damping = js.at("angular_damping").get<float>();
+ 	if (js.find("restitution") != std::end(js))
+-		data_->restitution = pack_float<uint8_t>(js.at("restitution").get<float>());
++		data_->restitution = js.at("restitution").get<float>();
+ 	if (js.find("friction") != std::end(js))
+-		data_->friction = pack_float<uint8_t>(js.at("friction").get<float>());
++		data_->friction = js.at("friction").get<float>();
+ 	if (js.find("rolling_friction") != std::end(js))
+-		data_->rolling_friction = pack_float<uint8_t>(js.at("rolling_friction").get<float>());
++		data_->rolling_friction = js.at("rolling_friction").get<float>();
+ }
+ 
+ void LoadComponent(Scene::Collision_ *data_, const json &js) {
+diff --git a/harfang/foundation/generational_vector_list.h b/harfang/foundation/generational_vector_list.h
+index 97296a4..e3b7044 100644
+--- a/harfang/foundation/generational_vector_list.h
++++ b/harfang/foundation/generational_vector_list.h
+@@ -2,6 +2,7 @@
+ 
+ #pragma once
+ 
++#include <cstdint>
+ #include "foundation/assert.h"
+ #include "foundation/vector_list.h"
+ 
+diff --git a/harfang/foundation/rw_interface.h b/harfang/foundation/rw_interface.h
+index b4efcdd..45ff5d4 100644
+--- a/harfang/foundation/rw_interface.h
++++ b/harfang/foundation/rw_interface.h
+@@ -2,6 +2,7 @@
+ 
+ #pragma once
+ 
++#include <cstdint>
+ #include "foundation/assert.h"
+ #include "foundation/seek_mode.h"
+ 
+diff --git a/harfang/foundation/sha1.cpp b/harfang/foundation/sha1.cpp
+index 04a7e81..4c0d4e3 100644
+--- a/harfang/foundation/sha1.cpp
++++ b/harfang/foundation/sha1.cpp
+@@ -32,6 +32,7 @@
+  Gregory Petrosyan
+  */
+ 
++#include <cstdint>
+ #include "foundation/sha1.h"
+ 
+ namespace hg {
+diff --git a/harfang/foundation/sysinfo.h b/harfang/foundation/sysinfo.h
+index 7e55d3f..606d190 100644
+--- a/harfang/foundation/sysinfo.h
++++ b/harfang/foundation/sysinfo.h
+@@ -1,5 +1,6 @@
+ // HARFANG(R) Copyright (C) 2021 Emmanuel Julien, NWNC HARFANG. Released under GPL/LGPL/Commercial Licence, see licence.txt for details.
+ 
++#include <cstdint>
+ #include <string>
+ #include <vector>
+ 
+diff --git a/harfang/foundation/timer.cpp b/harfang/foundation/timer.cpp
+index 2f46550..39fef86 100644
+--- a/harfang/foundation/timer.cpp
++++ b/harfang/foundation/timer.cpp
+@@ -1,5 +1,6 @@
+ // HARFANG(R) Copyright (C) 2021 Emmanuel Julien, NWNC HARFANG. Released under GPL/LGPL/Commercial Licence, see licence.txt for details.
+ 
++#include <cstdint>
+ #include "foundation/timer.h"
+ #include "foundation/thread.h"
+ #include "foundation/time_chrono.h"
+diff --git a/harfang/foundation/vector_list.h b/harfang/foundation/vector_list.h
+index 6daf4f3..7716523 100644
+--- a/harfang/foundation/vector_list.h
++++ b/harfang/foundation/vector_list.h
+@@ -2,6 +2,7 @@
+ 
+ #pragma once
+ 
++#include <cstdint>
+ #include <array>
+ #include <vector>
+ #include <iterator>
+diff --git a/harfang/platform/call_stack.h b/harfang/platform/call_stack.h
+index 11590d8..4c621da 100644
+--- a/harfang/platform/call_stack.h
++++ b/harfang/platform/call_stack.h
+@@ -2,6 +2,7 @@
+ 
+ #pragma once
+ 
++#include <cstdint>
+ #include <string>
+ #include <vector>
+ 
