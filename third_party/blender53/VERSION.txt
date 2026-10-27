@@ -1,0 +1,1 @@
+Blender blender-v5.3-release 454b4db5bc884669a4eb2e31e15382394efc9b7f (2026-10-26): extern/bullet2/src (Bullet 3.07 + inertia.patch, zlib), intern/rigidbody/rb_bullet_api.cpp and RBI_api.h (GPL-2.0-or-later). Blender builds both with BT_USE_DOUBLE_PRECISION.
