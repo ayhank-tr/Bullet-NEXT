@@ -45,6 +45,16 @@ class EngineImpl : public bnl::Engine {
     st.threads = o.threads;
     m_world = new World(st);
     bn::build(*m_world, m_scene);
+    // heightfields: Bullet's body sits at the middle of the height range (see placeHeightfield);
+    // report the scene's origin (the grid centre at height 0)
+    m_raise.assign(m_scene.bodies.size(), 0.0f);
+    for (size_t i = 0; i < m_scene.bodies.size(); ++i) {
+      const bnl::ShapeDesc& sh = m_scene.bodies[i].shape;
+      if (sh.type != bnl::ShapeDesc::kHeightfield || sh.heights.empty()) continue;
+      float lo = sh.heights[0], hi = sh.heights[0];
+      for (size_t k = 1; k < sh.heights.size(); ++k) { lo = sh.heights[k] < lo ? sh.heights[k] : lo; hi = sh.heights[k] > hi ? sh.heights[k] : hi; }
+      m_raise[i] = 0.5f * (lo + hi);
+    }
     return true;
   }
 
@@ -76,6 +86,7 @@ class EngineImpl : public bnl::Engine {
     }
     const btTransform& t = b.obj->getWorldTransform();
     s.p = fromBt(t.getOrigin());
+    if (i < (int)m_raise.size() && m_raise[i] != 0.0f) s.p = fromBt(t.getOrigin() - t.getBasis() * btVector3(0, 0, m_raise[i]));
     s.q = fromBt(t.getRotation());
     if (b.rb) { s.lin = fromBt(b.rb->getLinearVelocity()); s.ang = fromBt(b.rb->getAngularVelocity()); }
     return s;
@@ -293,6 +304,7 @@ class EngineImpl : public bnl::Engine {
   bool m_forceSoftStep = false;
 
   bnl::SceneDesc m_scene;
+  std::vector<float> m_raise;  // per scene body: how far a heightfield's Bullet origin is raised
   World* m_world = nullptr;
   double m_micros = 0;
   bnl::u64 m_frameHash = 0, m_final = 0;

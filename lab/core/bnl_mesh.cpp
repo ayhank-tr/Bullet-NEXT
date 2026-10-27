@@ -178,6 +178,22 @@ void shapeMesh(const ShapeDesc& s, TriMesh& out, int seg) {
         append(out, child, &s.children[i].xform);
       }
       break;
+    case ShapeDesc::kHeightfield: {
+      // the grid centred on the origin, each quad split along the diagonal Bullet uses (from
+      // sample (i + 1, j) to (i, j + 1)), counter-clockwise seen from above
+      const int nx = s.samplesX, ny = s.samplesY;
+      for (int j = 0; j < ny; ++j)
+        for (int i = 0; i < nx; ++i)
+          out.verts.push_back(Vec3(((float)i - 0.5f * (float)(nx - 1)) * s.spacing, ((float)j - 0.5f * (float)(ny - 1)) * s.spacing,
+                                   s.heights[(size_t)j * nx + i]));
+      for (int j = 0; j + 1 < ny; ++j)
+        for (int i = 0; i + 1 < nx; ++i) {
+          const int a = j * nx + i, b = a + 1, c = a + nx + 1, d = a + nx;
+          out.tris.push_back(a); out.tris.push_back(b); out.tris.push_back(d);
+          out.tris.push_back(b); out.tris.push_back(c); out.tris.push_back(d);
+        }
+      break;
+    }
   }
 }
 

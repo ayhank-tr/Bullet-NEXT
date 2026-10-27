@@ -22,6 +22,7 @@
 #include <Jolt/Physics/Collision/Shape/BoxShape.h>
 #include <Jolt/Physics/Collision/Shape/CapsuleShape.h>
 #include <Jolt/Physics/Collision/Shape/ConvexHullShape.h>
+#include <Jolt/Physics/Collision/Shape/HeightFieldShape.h>
 #include <Jolt/Physics/Collision/Shape/CylinderShape.h>
 #include <Jolt/Physics/Collision/Shape/MeshShape.h>
 #include <Jolt/Physics/Collision/Shape/RotatedTranslatedShape.h>
@@ -168,6 +169,28 @@ RefConst<Shape> makeShape(const bnl::ShapeDesc& s, bool dynamicBody) {
       bnl::TriMesh m;
       bnl::shapeMesh(s, m);
       if (dynamicBody) return hullOf(m.verts, s.margin);  // Jolt: moving triangle meshes are not supported
+      VertexList v;
+      for (const auto& p : m.verts) v.push_back(Float3(p.x, p.y, p.z));
+      IndexedTriangleList t;
+      for (size_t i = 0; i + 2 < m.tris.size(); i += 3) t.push_back(IndexedTriangle(m.tris[i], m.tris[i + 1], m.tris[i + 2]));
+      return MeshShapeSettings(v, t).Create().Get();
+    }
+    case bnl::ShapeDesc::kHeightfield: {
+      // Jolt's heightfield is square and Y up. A quarter turn about x puts Jolt's height on the
+      // scene's Z and Jolt's z on the scene's -y; reading the rows from the far end keeps Bullet's
+      // quad diagonal (from sample (i + 1, j) to (i, j + 1)). Other grids: a mesh.
+      const int n = s.samplesX;
+      if (n == s.samplesY && n >= 4 && n % 2 == 0) {
+        std::vector<float> samples((size_t)n * n);
+        for (int r = 0; r < n; ++r)
+          for (int i = 0; i < n; ++i) samples[(size_t)r * n + i] = s.heights[(size_t)(n - 1 - r) * n + i];
+        const float h = 0.5f * (float)(n - 1) * s.spacing;
+        HeightFieldShapeSettings hs(samples.data(), Vec3(-h, 0, -h), Vec3(s.spacing, 1, s.spacing), (uint32)n);
+        hs.mBitsPerSample = hs.CalculateBitsPerSampleForError(0.0005f);
+        return RotatedTranslatedShapeSettings(Vec3::sZero(), Quat::sRotation(Vec3::sAxisX(), 0.5f * kPi), hs.Create().Get()).Create().Get();
+      }
+      bnl::TriMesh m;
+      bnl::shapeMesh(s, m);
       VertexList v;
       for (const auto& p : m.verts) v.push_back(Float3(p.x, p.y, p.z));
       IndexedTriangleList t;
@@ -658,6 +681,14 @@ class JoltEngine final : public bnl::Engine {
           break;
         case bnl::ActionDesc::kLinVel: setLinearVelocity(b, a.v); bi().ActivateBody(id(b)); break;
         case bnl::ActionDesc::kImpulse: applyImpulse(b, a.v); break;
+        case bnl::ActionDesc::kShiftOrigin:
+          if (f == a.from) {
+            BodyIDVector ids;
+            m_physics->GetBodies(ids);
+            for (const BodyID& bid : ids) bi().SetPosition(bid, bi().GetPosition(bid) + J(a.v), EActivation::DontActivate);
+            for (auto& s : m_slots) if (s.character) s.character->SetPosition(s.character->GetPosition() + J(a.v));
+          }
+          break;
         default: break;
       }
     }

@@ -135,6 +135,9 @@ class World {
   // Scripted kinematic motion: BGE moves the body now; Blender's rigid body world moves it to
   // the target over the next frame's substeps (rigidbody_update_kinematic_obj_substep).
   void moveKinematic(int body, const btVector3& delta);
+  // Stage 0, CS.3: moves the whole world by d (btNextShiftWorld on Bullet NEXT; the same steps
+  // by hand on the older copies), soft bodies included
+  void shiftOrigin(const btVector3& d);
 
   const std::vector<BodyRec>& bodies() const { return m_bodies; }
   BodyRec& body(int i) { return m_bodies[i]; }
@@ -208,6 +211,19 @@ class OwnedMesh : private MeshMemory, public btTriangleIndexVertexArray {
         btTriangleIndexVertexArray((int)MeshMemory::t.size() / 3, &MeshMemory::t[0], 3 * sizeof(int),
                                    (int)MeshMemory::v.size() / 3, &MeshMemory::v[0], 3 * sizeof(btScalar)) {}
 };
+// A heightfield that keeps its own heights (Stage 0, CS.2): samplesX by samplesY floats, Z up,
+// `spacing` metres apart. Bullet centres it on its bounding box: makeHeightfield returns the
+// height of that centre, which the body's origin must be raised by.
+struct HeightMemory {
+  std::vector<float> h;
+  explicit HeightMemory(const std::vector<float>& hh) : h(hh) {}
+};
+class OwnedHeightfield : private HeightMemory, public btHeightfieldTerrainShape {
+ public:
+  OwnedHeightfield(int nx, int ny, const std::vector<float>& heights, float minH, float maxH)
+      : HeightMemory(heights), btHeightfieldTerrainShape(nx, ny, &HeightMemory::h[0], 1.0f, minH, maxH, 2, PHY_FLOAT, false) {}
+};
+btCollisionShape* makeHeightfield(int nx, int ny, float spacing, const std::vector<float>& heights, float margin, float* centreZ);
 // Deletes a shape with everything the Lab made for it: compound children, the BVH inside the
 // scaled wrapper, mesh memory.
 void deleteShape(btCollisionShape* s);

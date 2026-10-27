@@ -155,9 +155,22 @@ btCollisionShape* makeShape(const bnl::ShapeDesc& s) {
         c->addChildShape(toBt(s.children[i].xform), makeShape(s.children[i].shape));
       return c;
     }
+    case bnl::ShapeDesc::kHeightfield:
+      return makeHeightfield(s.samplesX, s.samplesY, s.spacing, s.heights, s.margin, 0);
   }
   return 0;
 }
+
+namespace {
+// A heightfield's body origin is the grid centre at height 0 in the scene; Bullet centres the
+// shape on its bounding box, so the body goes up by the middle of the height range.
+void placeHeightfield(const bnl::ShapeDesc& s, BodyOpts& o) {
+  if (s.type != bnl::ShapeDesc::kHeightfield) return;
+  float lo = s.heights[0], hi = s.heights[0];
+  for (size_t i = 1; i < s.heights.size(); ++i) { lo = s.heights[i] < lo ? s.heights[i] : lo; hi = s.heights[i] > hi ? s.heights[i] : hi; }
+  o.xform.setOrigin(o.xform.getOrigin() + o.xform.getBasis() * btVector3(0, 0, 0.5f * (lo + hi)));
+}
+}  // namespace
 
 void build(World& w, const bnl::SceneDesc& s) {
   std::vector<int> bodyIndex(s.bodies.size(), -1);
@@ -176,9 +189,11 @@ void build(World& w, const bnl::SceneDesc& s) {
           bodyIndex[ob.index] = w.addCharacter(o, d.stepHeight, d.jumpSpeed, d.fallSpeed);
         } else if (s.profile == "blender53-rb") {
           o.shape = makeRbShape(d.shape, (d.kind == bnl::kRigid || d.kind == bnl::kDynamic) && !d.animated);
+          placeHeightfield(d.shape, o);
           bodyIndex[ob.index] = w.add(o);
         } else {
           o.shape = makeShape(d.shape);
+          placeHeightfield(d.shape, o);
           bodyIndex[ob.index] = w.add(o);
         }
         break;
@@ -288,6 +303,7 @@ void act(World& w, const bnl::SceneDesc& s, int f) {
       case bnl::ActionDesc::kKinematicMove: w.moveKinematic(a.target, toBt(a.v)); break;
       case bnl::ActionDesc::kLinVel: if (r.rb) { r.rb->setLinearVelocity(toBt(a.v)); r.rb->activate(true); } break;
       case bnl::ActionDesc::kImpulse: if (r.rb) { r.rb->applyCentralImpulse(toBt(a.v)); r.rb->activate(true); } break;
+      case bnl::ActionDesc::kShiftOrigin: if (f == a.from) w.shiftOrigin(toBt(a.v)); break;
       default: break;
     }
   }

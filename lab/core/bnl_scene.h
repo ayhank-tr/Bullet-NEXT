@@ -30,12 +30,26 @@ struct Xform {
 };
 
 // A triangle mesh, given explicitly or generated (the generators are part of every backend).
+// Terrain generator for a heightfield (Stage 0, CS.2): the same heights on every engine and
+// platform (only +, -, *, / and floor on floats). kind "plane": slope only; "rolling": value noise
+// of `octaves` octaves (each half the wavelength and amplitude of the last) plus the slope.
+struct TerrainDesc {
+  std::string kind;               // empty: the heights are given
+  float amplitude = 0, wavelength = 50;
+  int octaves = 1, seed = 1;
+  float slopeX = 0, slopeY = 0;   // height change per metre along x and y
+};
+
 struct MeshDesc {
-  enum Gen { kExplicit, kGrid, kBox };
+  enum Gen { kExplicit, kGrid, kBox, kTerrain };
   Gen gen = kExplicit;
   int nx = 0, ny = 0;    // grid: cells
   float size = 0;        // grid: half size
   Vec3 half;             // box: half extents
+  // terrain (Stage 0, BS.2): the triangles a heightfield of these samples would have
+  int samplesX = 0, samplesY = 0;
+  float spacing = 1;
+  TerrainDesc terrain;
   std::vector<Vec3> verts;
   std::vector<int> tris;
 };
@@ -44,7 +58,7 @@ struct ShapeDesc;
 struct ChildDesc;
 
 struct ShapeDesc {
-  enum Type { kBox, kSphere, kCylinderZ, kConeZ, kCapsuleZ, kHull, kMesh, kCompound };
+  enum Type { kBox, kSphere, kCylinderZ, kConeZ, kCapsuleZ, kHull, kMesh, kCompound, kHeightfield };
   Type type = kBox;
   Vec3 half;                      // box, cylinder
   float radius = 0, height = 0;   // sphere, cone, capsule
@@ -54,7 +68,16 @@ struct ShapeDesc {
   bool dynamicMesh = false;       // mesh: GImpact (dynamic) or BVH (static)
   Vec3 scale = Vec3(1, 1, 1);     // mesh
   std::vector<ChildDesc> children;  // compound
+  // heightfield (static bodies only): samplesX by samplesY heights, `spacing` metres apart, row
+  // by row (x fastest). The body's origin is the grid's centre at height 0.
+  int samplesX = 0, samplesY = 0;
+  float spacing = 1;
+  std::vector<float> heights;
+  TerrainDesc terrain;
 };
+
+// Fills s.heights from s.terrain (heightfield shapes).
+void generateHeights(ShapeDesc& s);
 
 struct ChildDesc {
   Xform xform;
@@ -152,12 +175,13 @@ struct ObjectDesc {
 
 // Scripted game logic, as data. Ranges are inclusive; to = -1 runs to the end.
 struct ActionDesc {
-  enum Op { kVehicle, kWalk, kJump, kSuspend, kKinematicMove, kLinVel, kImpulse };
+  enum Op { kVehicle, kWalk, kJump, kSuspend, kKinematicMove, kLinVel, kImpulse, kShiftOrigin };
   Op op = kVehicle;
   int from = 0, to = 0;
   int target = 0;                 // body or vehicle index
   std::vector<float> engine, brake, steer;  // vehicle, per wheel (empty: not set by this action)
-  Vec3 v;                         // walk direction, move delta, velocity or impulse
+  Vec3 v;                         // walk direction, move delta, velocity, impulse or (shift_origin,
+                                  // once at `from`) the offset the whole world moves by
 };
 
 struct SettingsDesc {

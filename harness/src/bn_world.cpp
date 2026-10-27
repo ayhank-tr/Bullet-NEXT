@@ -204,9 +204,12 @@ World::World(const Settings& s) : m_settings(s) {
 #if BN_NEXT_FEATURES
   if (featureOn(1)) {
     btNextConfigureWorld(m_world);                               // C1.3: ordered pairs, SAT for triangles
-    // Bullet 2.84 (Blender 2.79b) recovered deep penetration with erp2 = 0.8; upstream lowered it
-    // to 0.2, which leaves resting bodies up to 4x deeper. The BGE world keeps 2.79b's value.
+    // Contact ERP 0.8 as 2.79b sets it (Stage 0, CS.1, rule 4): an impact's overlap is pushed out
+    // by split impulse, which adds no speed; resting contacts are corrected as Bullet 2.84 did
+    // (m_erp). Upstream corrects with 0.8 in the velocity: bodies came back from a bounce faster
+    // than they hit, and boxes sliding over terrain rocked upward.
     m_world->getSolverInfo().m_erp2 = btScalar(0.8);
+    m_world->getSolverInfo().m_bnContactErpRule = 4;
   }
   m_meshReduction = featureOn(1);                                // C1.6b, part of the world configuration
   m_linkedCollision = featureOn(2);                              // C1.1: Blender's linked-collision semantics
@@ -537,6 +540,29 @@ void World::setKinematicTransform(int i, const btTransform& t) {
   body->activate(true);
 }
 
+void World::shiftOrigin(const btVector3& d) {
+#if BN_NEXT_FEATURES || BN_NEXT_LIB
+  btNextShiftWorld(m_world, d);
+#else
+  btCollisionObjectArray& objects = m_world->getCollisionObjectArray();
+  for (int i = 0; i < objects.size(); ++i) {
+    btCollisionObject* o = objects[i];
+    if (o->getInternalType() == btCollisionObject::CO_SOFT_BODY) continue;
+    btTransform t = o->getWorldTransform();
+    t.setOrigin(t.getOrigin() + d);
+    o->setWorldTransform(t);
+    btTransform it = o->getInterpolationWorldTransform();
+    it.setOrigin(it.getOrigin() + d);
+    o->setInterpolationWorldTransform(it);
+    btRigidBody* rb = btRigidBody::upcast(o);
+    if (rb && rb->getMotionState()) rb->getMotionState()->setWorldTransform(t);
+    m_world->updateSingleAabb(o);
+  }
+#endif
+  for (size_t i = 0; i < m_bodies.size(); ++i)
+    if (m_bodies[i].soft) m_bodies[i].soft->translate(d);
+}
+
 void World::moveKinematic(int i, const btVector3& delta) {
   BodyRec& r = m_bodies[i];
   if (m_settings.profile != kBlenderRb) {
@@ -645,6 +671,16 @@ void deleteShape(btCollisionShape* s) {
   }
   delete s;
   delete mesh;
+}
+
+btCollisionShape* makeHeightfield(int nx, int ny, float spacing, const std::vector<float>& heights, float margin, float* centreZ) {
+  float lo = heights[0], hi = heights[0];
+  for (size_t i = 1; i < heights.size(); ++i) { lo = heights[i] < lo ? heights[i] : lo; hi = heights[i] > hi ? heights[i] : hi; }
+  OwnedHeightfield* s = new OwnedHeightfield(nx, ny, heights, lo, hi);
+  s->setLocalScaling(btVector3(spacing, spacing, 1.0f));
+  s->setMargin(margin);
+  if (centreZ) *centreZ = 0.5f * (lo + hi);
+  return s;
 }
 
 btCollisionShape* makeMesh(const std::vector<btVector3>& verts, const std::vector<int>& tris,

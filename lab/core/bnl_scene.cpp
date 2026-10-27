@@ -79,6 +79,23 @@ void meshData(const MeshDesc& m, std::vector<Vec3>& v, std::vector<int>& t) {
   switch (m.gen) {
     case MeshDesc::kGrid: gridMesh(m.nx, m.ny, m.size, v, t); break;
     case MeshDesc::kBox: boxMesh(m.half, v, t); break;
+    case MeshDesc::kTerrain: {
+      ShapeDesc hf;
+      hf.samplesX = m.samplesX; hf.samplesY = m.samplesY; hf.spacing = m.spacing; hf.terrain = m.terrain;
+      generateHeights(hf);
+      const int nx = m.samplesX, ny = m.samplesY;
+      v.clear(); t.clear();
+      for (int j = 0; j < ny; ++j)
+        for (int i = 0; i < nx; ++i)
+          v.push_back(Vec3(((float)i - 0.5f * (float)(nx - 1)) * m.spacing, ((float)j - 0.5f * (float)(ny - 1)) * m.spacing, hf.heights[(size_t)j * nx + i]));
+      for (int j = 0; j + 1 < ny; ++j)
+        for (int i = 0; i + 1 < nx; ++i) {
+          const int a = j * nx + i, b = a + 1, cc = a + nx + 1, d = a + nx;  // Bullet's diagonal, b to d
+          t.push_back(a); t.push_back(b); t.push_back(d);
+          t.push_back(b); t.push_back(cc); t.push_back(d);
+        }
+      break;
+    }
     default: v = m.verts; t = m.tris; break;
   }
 }
@@ -86,6 +103,52 @@ void meshData(const MeshDesc& m, std::vector<Vec3>& v, std::vector<int>& t) {
 // --- JSON ---------------------------------------------------------------------------------------
 // Floats are written as the shortest decimal that reads back to the same float, so a scene file
 // rebuilds bit for bit what it was written from.
+
+// Heightfield terrain generator (Stage 0, CS.2): integer hashing and float +, -, *, /, floor only,
+// so every engine, compiler and the browser get the same heights.
+namespace {
+unsigned int terrainHash(unsigned int a, unsigned int b, unsigned int c) {
+  unsigned int h = a * 0x8da6b343u ^ b * 0xd8163841u ^ c * 0xcb1ab31fu;
+  h ^= h >> 13;
+  h *= 0x5bd1e995u;
+  h ^= h >> 15;
+  return h;
+}
+// A lattice value in [-1, 1].
+float terrainLattice(int seed, int ix, int iy) {
+  return (float)(terrainHash((unsigned int)seed, (unsigned int)ix, (unsigned int)iy) & 0xffffffu) / 8388607.5f - 1.0f;
+}
+float terrainSmooth(float t) { return t * t * (3.0f - 2.0f * t); }
+}  // namespace
+
+void generateHeights(ShapeDesc& s) {
+  const TerrainDesc& t = s.terrain;
+  s.heights.assign((size_t)s.samplesX * (size_t)s.samplesY, 0.0f);
+  for (int j = 0; j < s.samplesY; ++j) {
+    for (int i = 0; i < s.samplesX; ++i) {
+      const float x = ((float)i - 0.5f * (float)(s.samplesX - 1)) * s.spacing;
+      const float y = ((float)j - 0.5f * (float)(s.samplesY - 1)) * s.spacing;
+      float h = t.slopeX * x + t.slopeY * y;
+      if (t.kind == "rolling") {
+        float amp = t.amplitude, wl = t.wavelength;
+        for (int o = 0; o < t.octaves; ++o) {
+          const float u = x / wl, v = y / wl;
+          const float fu = std::floor(u), fv = std::floor(v);
+          const int iu = (int)fu, iv = (int)fv;
+          const float su = terrainSmooth(u - fu), sv = terrainSmooth(v - fv);
+          const int seed = t.seed + 7919 * o;
+          const float a = terrainLattice(seed, iu, iv), b = terrainLattice(seed, iu + 1, iv);
+          const float c = terrainLattice(seed, iu, iv + 1), d = terrainLattice(seed, iu + 1, iv + 1);
+          const float ab = a + (b - a) * su, cd = c + (d - c) * su;
+          h += amp * (ab + (cd - ab) * sv);
+          amp *= 0.5f;
+          wl *= 0.5f;
+        }
+      }
+      s.heights[(size_t)j * (size_t)s.samplesX + (size_t)i] = h;
+    }
+  }
+}
 
 namespace {
 
@@ -116,6 +179,19 @@ json jmesh(const MeshDesc& m) {
   json o = json::object();
   if (m.gen == MeshDesc::kGrid) { o["grid"] = json::array({m.nx, m.ny}); o["size"] = jf(m.size); }
   else if (m.gen == MeshDesc::kBox) { o["box"] = jv(m.half); }
+  else if (m.gen == MeshDesc::kTerrain) {
+    json g = json::object();
+    g["samples"] = json::array({m.samplesX, m.samplesY});
+    g["spacing"] = jf(m.spacing);
+    json t = json::object();
+    t["kind"] = m.terrain.kind;
+    if (m.terrain.amplitude != 0) t["amplitude"] = jf(m.terrain.amplitude);
+    if (m.terrain.kind == "rolling") { t["wavelength"] = jf(m.terrain.wavelength); t["octaves"] = m.terrain.octaves; t["seed"] = m.terrain.seed; }
+    if (m.terrain.slopeX != 0) t["slope_x"] = jf(m.terrain.slopeX);
+    if (m.terrain.slopeY != 0) t["slope_y"] = jf(m.terrain.slopeY);
+    g["terrain"] = t;
+    o["terrain_grid"] = g;
+  }
   else {
     json v = json::array();
     for (size_t i = 0; i < m.verts.size(); ++i) { v.push_back(jf(m.verts[i].x)); v.push_back(jf(m.verts[i].y)); v.push_back(jf(m.verts[i].z)); }
@@ -125,14 +201,16 @@ json jmesh(const MeshDesc& m) {
   return o;
 }
 
-const char* kShapeNames[] = {"box", "sphere", "cylinder_z", "cone_z", "capsule_z", "hull", "mesh", "compound"};
+const char* kShapeNames[] = {"box", "sphere", "cylinder_z", "cone_z", "capsule_z", "hull", "mesh", "compound", "heightfield"};
 const char* kKindNames[] = {"static", "dynamic", "rigid", "sensor", "character", "soft"};
 const char* kConstraintNames[] = {"point_to_point", "hinge", "cone_twist", "generic_6dof_spring",
                                   "rb_fixed", "rb_point", "rb_hinge", "rb_slider", "rb_piston", "rb_generic",
                                   "rb_generic_spring", "rb_motor"};
 const int kConstraintCount = 12;
 const char* kAxisNames[] = {"lin_x", "lin_y", "lin_z", "ang_x", "ang_y", "ang_z"};
-const char* kOpNames[] = {"vehicle", "walk", "jump", "suspend", "kinematic_move", "lin_vel", "impulse"};
+const char* kOpNames[] = {"vehicle", "walk", "jump", "suspend", "kinematic_move", "lin_vel", "impulse", "shift_origin"};
+
+json jfloats(const std::vector<float>& v);
 
 json jshape(const ShapeDesc& s) {
   json o = json::object();
@@ -151,6 +229,21 @@ json jshape(const ShapeDesc& s) {
       o["mesh"] = jmesh(s.mesh);
       if (s.dynamicMesh) o["dynamic"] = true;
       if (s.scale.x != 1 || s.scale.y != 1 || s.scale.z != 1) o["scale"] = jv(s.scale);
+      break;
+    case ShapeDesc::kHeightfield:
+      o["samples"] = json::array({s.samplesX, s.samplesY});
+      o["spacing"] = jf(s.spacing);
+      if (!s.terrain.kind.empty()) {
+        json t = json::object();
+        t["kind"] = s.terrain.kind;
+        if (s.terrain.amplitude != 0) t["amplitude"] = jf(s.terrain.amplitude);
+        if (s.terrain.kind == "rolling") { t["wavelength"] = jf(s.terrain.wavelength); t["octaves"] = s.terrain.octaves; t["seed"] = s.terrain.seed; }
+        if (s.terrain.slopeX != 0) t["slope_x"] = jf(s.terrain.slopeX);
+        if (s.terrain.slopeY != 0) t["slope_y"] = jf(s.terrain.slopeY);
+        o["terrain"] = t;
+      } else {
+        o["heights"] = jfloats(s.heights);
+      }
       break;
     case ShapeDesc::kCompound: {
       json c = json::array();
@@ -334,6 +427,22 @@ struct Reader {
     } else if (o.contains("box")) {
       m.gen = MeshDesc::kBox;
       m.half = v3(o["box"]);
+    } else if (o.contains("terrain_grid")) {
+      const json& g = o["terrain_grid"];
+      m.gen = MeshDesc::kTerrain;
+      if (g.contains("samples") && g["samples"].is_array() && g["samples"].size() == 2) {
+        m.samplesX = g["samples"][0].get<int>(); m.samplesY = g["samples"][1].get<int>();
+      }
+      m.spacing = f(g, "spacing", 1.0f);
+      if (m.samplesX < 2 || m.samplesY < 2) fail("terrain_grid: 'samples' [x, y] of at least 2");
+      const json t = g.value("terrain", json::object());
+      m.terrain.kind = t.value("kind", std::string("plane"));
+      m.terrain.amplitude = f(t, "amplitude", 0);
+      m.terrain.wavelength = f(t, "wavelength", 50);
+      m.terrain.octaves = i(t, "octaves", 1);
+      m.terrain.seed = i(t, "seed", 1);
+      m.terrain.slopeX = f(t, "slope_x", 0);
+      m.terrain.slopeY = f(t, "slope_y", 0);
     } else {
       std::vector<float> fv = fl(o, "verts");
       for (size_t n = 0; n + 2 < fv.size(); n += 3) m.verts.push_back(Vec3(fv[n], fv[n + 1], fv[n + 2]));
@@ -344,7 +453,7 @@ struct Reader {
 
   ShapeDesc shape(const json& o) {
     ShapeDesc s;
-    s.type = (ShapeDesc::Type)enumOf(o.value("shape", std::string("box")), kShapeNames, 8, "shape");
+    s.type = (ShapeDesc::Type)enumOf(o.value("shape", std::string("box")), kShapeNames, 9, "shape");
     s.margin = f(o, "margin", 0.04f);
     switch (s.type) {
       case ShapeDesc::kBox: case ShapeDesc::kCylinderZ: s.half = v(o, "half", Vec3()); break;
@@ -363,10 +472,35 @@ struct Reader {
           for (const auto& c : o["children"]) {
             ChildDesc ch;
             ch.shape = shape(c);
+            if (ch.shape.type == ShapeDesc::kHeightfield) fail("a heightfield cannot be a compound child");
             ch.xform = x(c, "at");
             s.children.push_back(ch);
           }
         break;
+      case ShapeDesc::kHeightfield: {
+        if (o.contains("samples") && o["samples"].is_array() && o["samples"].size() == 2) {
+          s.samplesX = o["samples"][0].get<int>();
+          s.samplesY = o["samples"][1].get<int>();
+        }
+        s.spacing = f(o, "spacing", 1.0f);
+        if (s.samplesX < 2 || s.samplesY < 2 || !(s.spacing > 0)) { fail("heightfield: 'samples' [x, y] of at least 2 and a positive 'spacing'"); break; }
+        if (o.contains("terrain")) {
+          const json& t = o["terrain"];
+          s.terrain.kind = t.value("kind", std::string("plane"));
+          if (s.terrain.kind != "plane" && s.terrain.kind != "rolling") { fail("heightfield terrain kind must be plane or rolling"); break; }
+          s.terrain.amplitude = f(t, "amplitude", 0);
+          s.terrain.wavelength = f(t, "wavelength", 50);
+          s.terrain.octaves = i(t, "octaves", 1);
+          s.terrain.seed = i(t, "seed", 1);
+          s.terrain.slopeX = f(t, "slope_x", 0);
+          s.terrain.slopeY = f(t, "slope_y", 0);
+          generateHeights(s);
+        } else {
+          s.heights = fl(o, "heights");
+        }
+        if ((int)s.heights.size() != s.samplesX * s.samplesY) fail("heightfield: 'heights' needs samples x times samples y values");
+        break;
+      }
     }
     return s;
   }
@@ -439,7 +573,7 @@ struct Reader {
 
   ActionDesc action(const json& o) {
     ActionDesc a;
-    a.op = (ActionDesc::Op)enumOf(o.value("op", std::string()), kOpNames, 7, "action");
+    a.op = (ActionDesc::Op)enumOf(o.value("op", std::string()), kOpNames, 8, "action");
     if (o.contains("at")) a.from = a.to = i(o, "at", 0);
     else { a.from = i(o, "from", 0); a.to = i(o, "to", -1); }
     a.target = a.op == ActionDesc::kVehicle ? i(o, "vehicle", 0) : i(o, "body", 0);

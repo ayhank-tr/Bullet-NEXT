@@ -31,11 +31,6 @@ static void btDebugDrawLine(const btVector3& from, const btVector3& to, const bt
 }
 #endif  //BT_INTERNAL_EDGE_DEBUG_DRAW
 
-static int btGetHash(int partId, int triangleIndex)
-{
-	int hash = (partId << (31 - MAX_NUM_PARTS_IN_BITS)) | triangleIndex;
-	return hash;
-}
 
 static btScalar btGetAngle(const btVector3& edgeA, const btVector3& normalA, const btVector3& normalB)
 {
@@ -133,7 +128,7 @@ struct btConnectivityProcessor : public btTriangleCallback
 					sharedVertsB[0] = tmp;
 				}
 
-				int hash = btGetHash(m_partIdA, m_triangleIndexA);
+				int hash = m_triangleInfoMap->bnKey(m_partIdA, m_triangleIndexA);
 
 				btTriangleInfo* info = m_triangleInfoMap->find(hash);
 				if (!info)
@@ -411,6 +406,7 @@ void btGenerateInternalEdgeInfo(btHeightfieldTerrainShape* heightfieldShape, btT
 		return;
 
 	heightfieldShape->setTriangleInfoMap(triangleInfoMap);
+	triangleInfoMap->m_bnHeightfieldKeys = true;
 
 	//get all the triangles of the heightfield
 
@@ -541,7 +537,7 @@ void btAdjustInternalEdgeContacts(btManifoldPoint& cp, const btCollisionObjectWr
 	if (!triangleInfoMapPtr)
 		return;
 
-	int hash = btGetHash(partId0, index0);
+	int hash = triangleInfoMapPtr->bnKey(partId0, index0);
 
 	btTriangleInfo* info = triangleInfoMapPtr->find(hash);
 	if (!info)

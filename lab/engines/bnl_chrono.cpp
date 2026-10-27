@@ -110,8 +110,10 @@ class ChronoEngine : public bnl::Engine {
 
   bool build(const bnl::SceneDesc& sc, const bnl::EngineOptions& o, std::string& error) override {
     m_scene = sc;
-    for (const auto& b : sc.bodies)
+    for (const auto& b : sc.bodies) {
       if (b.kind == bnl::kCharacter || b.kind == bnl::kSoft) { error = "characters and soft bodies are not part of the Chrono engine"; return false; }
+      if (b.shape.type == bnl::ShapeDesc::kHeightfield) { error = "heightfields are not part of the Chrono engine"; return false; }
+    }
     if (!sc.vehicles.empty()) { error = "vehicles are not part of the Chrono engine"; return false; }
     ChCollisionSystemBullet::EnableNextFeatures(true);
     m_sys.SetCollisionSystemType(ChCollisionSystem::Type::BULLET);

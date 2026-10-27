@@ -37,7 +37,12 @@ struct Metrics {
   std::vector<int> phase;       // bounce state per body: 0 start, 1 falling, 2 rising, 3 done
   std::vector<float> apex;
   std::vector<float> lastVz, vIn, vOut, zLow;   // first bounce: speeds in and out, lowest point
+  std::vector<float> vDown;                     // fastest fall before the first bounce (impact speed)
   std::vector<bnl::BodyState> start;
+  float upMax = 0;                          // Stage 0: fastest upward speed after 0.5 s (bumps)
+  std::vector<float> upBody;                // the same per body
+  std::vector<int> upFrame;                 // and the frame it happened
+  std::vector<std::vector<bnl::Vec3> > track;   // Stage 0: each solid body's position every 30 frames
 };
 
 bool solid(const bnl::BodyDesc& b) { return (b.kind == bnl::kRigid || b.kind == bnl::kDynamic) && !b.ghost; }
@@ -51,7 +56,11 @@ void beginMetrics(const bnl::SceneDesc& scene, const bnl::Engine& e, Metrics& m)
   m.vIn.assign(n, 0.0f);
   m.vOut.assign(n, 0.0f);
   m.zLow.assign(n, 0.0f);
+  m.vDown.assign(n, 0.0f);
   m.start.resize(n);
+  m.track.assign(n, std::vector<bnl::Vec3>());
+  m.upBody.assign(n, 0.0f);
+  m.upFrame.assign(n, -1);
   for (int b = 0; b < n; ++b) m.start[b] = e.body(b);
   double en = 0;
   m.hasEnergy = e.energy(en);
@@ -76,10 +85,15 @@ void frameMetrics(const bnl::SceneDesc& scene, const bnl::Engine& e, int frame, 
     const bnl::BodyState s = e.body(b);
     const float speed = std::sqrt(s.lin.x * s.lin.x + s.lin.y * s.lin.y + s.lin.z * s.lin.z);
     if (rest) m.jitter = std::max(m.jitter, speed);
-    if (m.phase[b] == 1) m.zLow[b] = s.p.z;
+    if (frame > int(0.5f * scene.settings.ticrate + 0.5f)) {
+      m.upMax = std::max(m.upMax, s.lin.z);
+      if (s.lin.z > m.upBody[b]) { m.upBody[b] = s.lin.z; m.upFrame[b] = frame; }
+    }
+    if (frame % 30 == 0) m.track[b].push_back(s.p);
+    if (m.phase[b] == 1) { m.zLow[b] = s.p.z; m.vDown[b] = std::min(m.vDown[b], s.lin.z); }
     int& ph = m.phase[b];
     if (ph == 0 && s.lin.z < -0.1f) ph = 1;
-    else if (ph == 1 && s.lin.z > 0.05f) { ph = 2; m.apex[b] = s.p.z; m.vIn[b] = m.lastVz[b]; m.vOut[b] = s.lin.z; m.zLow[b] = s.p.z; }
+    else if (ph == 1 && s.lin.z > 0.05f) { ph = 2; m.apex[b] = s.p.z; m.vIn[b] = std::min(m.lastVz[b], m.vDown[b]); m.vOut[b] = s.lin.z; m.zLow[b] = s.p.z; }
     else if (ph == 2) { m.apex[b] = std::max(m.apex[b], s.p.z); if (s.lin.z < -0.05f) ph = 3; }
     m.lastVz[b] = s.lin.z;
   }
@@ -133,6 +147,27 @@ std::string metricsJson(const bnl::SceneDesc& scene, const bnl::Engine& e, doubl
   o << "], \"joints\": [";
   for (size_t j = 0; j < m.jointLin.size(); ++j) o << (j ? ", " : "") << "[" << num(m.jointLin[j]) << ", " << num(m.jointAng[j]) << "]";
   o << "], \"moved_xy_max\": " << num(moved) << ", \"dz_min\": " << num(dzMin) << ", \"tilt_max\": " << num(tilt);
+  o << ", \"up_max\": " << num(m.upMax) << ", \"up_bodies\": [";
+  first = true;
+  for (int b = 0; b < e.bodyCount() && b < (int)scene.bodies.size(); ++b) {
+    if (!solid(scene.bodies[b])) continue;
+    o << (first ? "" : ", ") << "[" << b << ", " << num(m.upBody[b]) << ", " << m.upFrame[b] << "]";
+    first = false;
+  }
+  o << "], \"track\": [";
+  first = true;
+  for (int b = 0; b < e.bodyCount() && b < (int)scene.bodies.size(); ++b) {
+    if (!solid(scene.bodies[b])) continue;
+    o << (first ? "" : ", ") << "[";
+    for (size_t k = 0; k < m.track[b].size(); ++k) {
+      char t[96];
+      std::snprintf(t, sizeof t, "%s[%.9g, %.9g, %.9g]", k ? ", " : "", m.track[b][k].x, m.track[b][k].y, m.track[b][k].z);
+      o << t;
+    }
+    o << "]";
+    first = false;
+  }
+  o << "]";
   bnl::SolverStats st;
   if (e.solverStats(st))
     o << ", \"solver\": {\"prepare_ms\": " << num(st.prepareMicros / 1000) << ", \"substeps_ms\": " << num(st.substepMicros / 1000)

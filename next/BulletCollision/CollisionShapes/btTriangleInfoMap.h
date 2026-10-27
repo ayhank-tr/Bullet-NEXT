@@ -18,6 +18,7 @@ subject to the following restrictions:
 
 #include "LinearMath/btHashMap.h"
 #include "LinearMath/btSerializer.h"
+#include "BulletCollision/BroadphaseCollision/btQuantizedBvh.h"  // MAX_NUM_PARTS_IN_BITS (Bullet NEXT)
 
 ///for btTriangleInfo m_flags
 #define TRI_INFO_V0V1_CONVEX 1
@@ -61,10 +62,25 @@ struct btTriangleInfoMap : public btInternalTriangleInfoMap
 	// Bullet NEXT (FL, found by the Lab's leak checker): set when the map was made for its mesh by
 	// btNextEnableActiveEdges; the mesh (or heightfield) shape then deletes it with itself.
 	bool m_bnOwnedByShape;
+	// Bullet NEXT (Stage 0, found by the undefined-behaviour checker): the key of a triangle.
+	// A mesh's triangles come with a part below 2^MAX_NUM_PARTS_IN_BITS (16) and an index below
+	// 2^27, so upstream's key (part << 27 | index) is unique. A heightfield's come with part 2x or
+	// 2x + 1 (column x) and index y (row): upstream's key overflowed past column 7, and the
+	// triangles of columns 8 apart shared one entry, so terrain got its neighbours' edge angles.
+	// Heightfields use part << 15 | index (up to 65,536 columns and 32,768 rows).
+	bool m_bnHeightfieldKeys;
+
+	int bnKey(int partId, int triangleIndex) const
+	{
+		const unsigned int shift = m_bnHeightfieldKeys ? 15u : unsigned(31 - MAX_NUM_PARTS_IN_BITS);
+		btAssert(m_bnHeightfieldKeys ? (partId < (1 << 17) && triangleIndex < (1 << 15)) : (partId < (1 << MAX_NUM_PARTS_IN_BITS)));
+		return int((unsigned int)(partId) << shift | (unsigned int)(triangleIndex));
+	}
 
 	btTriangleInfoMap()
 	{
 		m_bnOwnedByShape = false;
+		m_bnHeightfieldKeys = false;
 		m_convexEpsilon = 0.00f;
 		m_planarEpsilon = 0.0001f;
 		m_equalVertexThreshold = btScalar(0.0001) * btScalar(0.0001);

@@ -38,4 +38,12 @@ void btNextConfigureCcd(btRigidBody* body, bool shapeCast);
 /// C1.3 - Deterministic pair and island ordering, plus SAT clipping for convex vs triangle.
 void btNextConfigureWorld(btDiscreteDynamicsWorld* world);
 
+/// Stage 0, CS.3 - World recentring for large worlds: moves every collision object (its world and
+/// interpolation transforms, its motion state, its broadphase bounds) by `offset`, so a game can
+/// keep the player near the origin where floats are precise. Constraints, contacts, vehicles and
+/// characters follow, as they are relative to their bodies. Soft bodies are not moved here
+/// (BulletDynamics does not know them): call btSoftBody::translate(offset) on each. Returns the
+/// number of soft bodies skipped. Call between steps.
+int btNextShiftWorld(btDiscreteDynamicsWorld* world, const class btVector3& offset);
+
 #endif

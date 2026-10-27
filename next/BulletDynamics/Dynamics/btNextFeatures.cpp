@@ -6,6 +6,7 @@ Copyright (c) 2026 BGE NEXT contributors. Same zlib terms as Bullet.
 
 #include "BulletDynamics/Dynamics/btDiscreteDynamicsWorld.h"
 #include "BulletDynamics/Dynamics/btRigidBody.h"
+#include "LinearMath/btMotionState.h"
 #include "BulletCollision/CollisionDispatch/btInternalEdgeUtility.h"
 #include "BulletCollision/CollisionDispatch/btCollisionObjectWrapper.h"
 #include "BulletCollision/CollisionDispatch/btManifoldResult.h"
@@ -91,7 +92,7 @@ static void flatRegionNormal(btManifoldPoint& cp, const btCollisionObjectWrapper
 	btTriangleInfoMap* map = meshInfoMap(triWrap);
 	if (!map)
 		return;
-	const int hash = (partId << (31 - MAX_NUM_PARTS_IN_BITS)) | index;
+	const int hash = map->bnKey(partId, index);
 	const btTriangleInfo* info = map->find(hash);
 	if (!info)
 		return;
@@ -250,4 +251,31 @@ void btNextConfigureWorld(btDiscreteDynamicsWorld* world)
 	// The contact error correction (erp2) is the host's choice, not set here (FL): the 2.79b game
 	// engine keeps Bullet 2.84's 0.8 (it sets it itself), while Blender's rigid body world runs
 	// Bullet's 0.2 - with 0.8 there, a moving triangle mesh falls through a static one.
+}
+
+// --- World recentring (Stage 0, CS.3) ---------------------------------------------------------
+int btNextShiftWorld(btDiscreteDynamicsWorld* world, const btVector3& offset)
+{
+	int softSkipped = 0;
+	btCollisionObjectArray& objects = world->getCollisionObjectArray();
+	for (int i = 0; i < objects.size(); ++i)
+	{
+		btCollisionObject* o = objects[i];
+		if (o->getInternalType() == btCollisionObject::CO_SOFT_BODY)
+		{
+			++softSkipped;
+			continue;
+		}
+		btTransform t = o->getWorldTransform();
+		t.setOrigin(t.getOrigin() + offset);
+		o->setWorldTransform(t);
+		btTransform it = o->getInterpolationWorldTransform();
+		it.setOrigin(it.getOrigin() + offset);
+		o->setInterpolationWorldTransform(it);
+		btRigidBody* rb = btRigidBody::upcast(o);
+		if (rb && rb->getMotionState())
+			rb->getMotionState()->setWorldTransform(t);
+		world->updateSingleAabb(o);
+	}
+	return softSkipped;
 }
