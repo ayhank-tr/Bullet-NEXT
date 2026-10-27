@@ -12,6 +12,7 @@ on:
       - "next/**"
       - "harness/src/**"
       - "tools/fetch_harfang.py"
+      - "tools/run_harfang_tests.py"
       - ".github/workflows/harfang.yml"
   workflow_dispatch:
 
