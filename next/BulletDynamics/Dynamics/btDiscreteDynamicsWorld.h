@@ -100,6 +100,10 @@ public:
 	void bnSweepTransforms(btRigidBody** bodies, int numBodies, btScalar timeStep, BnCcdResult* results);
 	void bnApplyTransforms(btRigidBody** bodies, int numBodies, btScalar timeStep, const BnCcdResult* results);
 	btAlignedObjectArray<BnCcdResult> m_bnHitFractions;
+	/// Bullet NEXT (F3c): where a body's step takes it, or the given fraction of the way. Soft Step
+	/// (BT_SOFT_STEP_SOLVER) has already moved the body and left the end transform in its
+	/// interpolation transform; the other solvers leave velocities, integrated here.
+	void bnPredictTransform(btRigidBody* body, btScalar timeStep, btScalar fraction, btTransform& out) const;
 
 	/// Bullet NEXT (F1, C1.9): two-pass predictive contacts (see .cpp).
 	struct BnPredictiveHit

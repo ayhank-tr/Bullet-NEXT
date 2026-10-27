@@ -1087,7 +1087,7 @@ void btDiscreteDynamicsWorld::integrateTransformsInternal(btRigidBody** bodies, 
 
 		if (body->isActive() && (!body->isStaticOrKinematicObject()))
 		{
-			body->predictIntegratedTransform(timeStep, predictedTrans);
+			bnPredictTransform(body, timeStep, btScalar(1), predictedTrans);
 
 			btScalar squareMotion = (predictedTrans.getOrigin() - body->getWorldTransform().getOrigin()).length2();
 
@@ -1134,7 +1134,7 @@ void btDiscreteDynamicsWorld::integrateTransformsInternal(btRigidBody** bodies, 
 					{
 						//printf("clamped integration to hit fraction = %f\n",fraction);
 						body->setHitFraction(sweepResults.m_closestHitFraction);
-						body->predictIntegratedTransform(timeStep * body->getHitFraction(), predictedTrans);
+						bnPredictTransform(body, timeStep, body->getHitFraction(), predictedTrans);
 						body->setHitFraction(0.f);
 						body->proceedToTransform(predictedTrans);
 
@@ -1149,7 +1149,7 @@ void btDiscreteDynamicsWorld::integrateTransformsInternal(btRigidBody** bodies, 
 							linVel*= maxSpeed;
 							body->setLinearVelocity(linVel);
 							btScalar ms2 = body->getLinearVelocity().length2();
-							body->predictIntegratedTransform(timeStep, predictedTrans);
+							bnPredictTransform(body, timeStep, btScalar(1), predictedTrans);
 
 							btScalar sm2 = (predictedTrans.getOrigin()-body->getWorldTransform().getOrigin()).length2();
 							btScalar smt = body->getCcdSquareMotionThreshold();
@@ -1191,7 +1191,7 @@ void btDiscreteDynamicsWorld::bnSweepTransforms(btRigidBody** bodies, int numBod
 		if (!(body->isActive() && (!body->isStaticOrKinematicObject())))
 			continue;
 		r.fraction = btScalar(1);
-		body->predictIntegratedTransform(timeStep, predictedTrans);
+		bnPredictTransform(body, timeStep, btScalar(1), predictedTrans);
 		btScalar squareMotion = (predictedTrans.getOrigin() - body->getWorldTransform().getOrigin()).length2();
 		if (getDispatchInfo().m_useContinuous && body->getCcdSquareMotionThreshold() && body->getCcdSquareMotionThreshold() < squareMotion && body->getCollisionShape()->isConvex())
 		{
@@ -1244,17 +1244,38 @@ void btDiscreteDynamicsWorld::bnApplyTransforms(btRigidBody** bodies, int numBod
 		if (fraction < btScalar(1))
 		{
 			body->setHitFraction(fraction);
-			body->predictIntegratedTransform(timeStep * body->getHitFraction(), predictedTrans);
+			bnPredictTransform(body, timeStep, body->getHitFraction(), predictedTrans);
 			body->setHitFraction(0.f);
 			if (!results[i].deltaV.isZero())
 				body->setLinearVelocity(body->getLinearVelocity() + results[i].deltaV);
 		}
 		else
 		{
-			body->predictIntegratedTransform(timeStep, predictedTrans);
+			bnPredictTransform(body, timeStep, btScalar(1), predictedTrans);
 		}
 		body->proceedToTransform(predictedTrans);
 	}
+}
+
+void btDiscreteDynamicsWorld::bnPredictTransform(btRigidBody* body, btScalar timeStep, btScalar fraction, btTransform& out) const
+{
+	if (m_constraintSolver && m_constraintSolver->getSolverType() == BT_SOFT_STEP_SOLVER)
+	{
+		const btTransform& end = body->getInterpolationWorldTransform();
+		if (fraction >= btScalar(1))
+		{
+			out = end;
+			return;
+		}
+		const btTransform& start = body->getWorldTransform();
+		btQuaternion q0, q1;
+		start.getBasis().getRotation(q0);
+		end.getBasis().getRotation(q1);
+		out.setOrigin(start.getOrigin().lerp(end.getOrigin(), fraction));
+		out.setRotation(q0.slerp(q1, fraction));
+		return;
+	}
+	body->predictIntegratedTransform(timeStep * fraction, out);
 }
 
 void btDiscreteDynamicsWorld::integrateTransforms(btScalar timeStep)

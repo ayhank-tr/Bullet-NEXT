@@ -100,6 +100,18 @@ protected:
 	btScalar m_dbgDrawSize;
 	btJointFeedback* m_jointFeedback;
 
+public:
+	/// Bullet NEXT (F3c): the Soft Step solver's row impulses of the last substep, as forces
+	/// (impulse per second), kept with the constraint so that the next step starts from them
+	/// whichever solver thread gets this constraint. m_bnWarmRows = 0: nothing kept.
+	enum
+	{
+		BN_MAX_WARM_ROWS = 18
+	};
+	btScalar m_bnWarmForce[BN_MAX_WARM_ROWS];
+	int m_bnWarmRows;
+
+protected:
 	///internal method used by the constraint solver, don't use them directly
 	btScalar getMotorFactor(btScalar pos, btScalar lowLim, btScalar uppLim, btScalar vel, btScalar timeFact);
 
