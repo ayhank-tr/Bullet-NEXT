@@ -1,0 +1,57 @@
+diff --git a/doc/python_api/rst/bge.constraints.rst b/doc/python_api/rst/bge.constraints.rst
+index 80b5880..cd0595b 100644
+--- a/doc/python_api/rst/bge.constraints.rst
++++ b/doc/python_api/rst/bge.constraints.rst
+@@ -235,7 +235,8 @@ Functions
+ .. function:: setERPContact(erp2)
+ 
+    Sets the Error Reduction Parameter for contacts: how fast overlapping objects are pushed apart.
+-   Only with Bullet NEXT.
++   After an impact the push adds no speed (split impulse), so objects bounce at their
++   restitution. Only with Bullet NEXT.
+ 
+    :arg erp2: The contact ERP, 0.0 to 1.0 (default 0.8, as in Blender 2.79b).
+    :type erp2: float
+diff --git a/source/blender/makesrna/intern/rna_scene.c b/source/blender/makesrna/intern/rna_scene.c
+index 4d2efc4..b591a36 100644
+--- a/source/blender/makesrna/intern/rna_scene.c
++++ b/source/blender/makesrna/intern/rna_scene.c
+@@ -5138,8 +5138,8 @@ static void rna_def_scene_game_data(BlenderRNA *brna)
+ 	RNA_def_property_float_sdna(prop, NULL, "erp2");
+ 	RNA_def_property_range(prop, 0.0, 1.0);
+ 	RNA_def_property_ui_text(prop, "Contact ERP",
+-	                         "Error Reduction Parameter for contacts: how fast overlapping objects are pushed apart "
+-	                         "(Bullet NEXT)");
++	                         "Error Reduction Parameter for contacts: how fast overlapping objects are pushed apart; "
++	                         "after an impact without adding speed (Bullet NEXT)");
+ 	RNA_def_property_update(prop, NC_SCENE, NULL);
+ 
+ 	prop = RNA_def_property(srna, "cfm_parameter", PROP_FLOAT, PROP_NONE);
+diff --git a/source/gameengine/Ketsji/KX_PyConstraintBinding.cpp b/source/gameengine/Ketsji/KX_PyConstraintBinding.cpp
+index 80a9f44..3dfc535 100644
+--- a/source/gameengine/Ketsji/KX_PyConstraintBinding.cpp
++++ b/source/gameengine/Ketsji/KX_PyConstraintBinding.cpp
+@@ -131,7 +131,7 @@ PyDoc_STRVAR(gPySetERPNonContact__doc__,
+ );
+ PyDoc_STRVAR(gPySetERPContact__doc__,
+ "setERPContact(float erp2)\n"
+-"Bullet NEXT: error reduction parameter for contacts (0.0 - 1.0)"
++"Bullet NEXT: error reduction parameter for contacts (0.0 - 1.0); after an impact the push adds no speed"
+ );
+ PyDoc_STRVAR(gPySetCFM__doc__,
+ "setCFM(float cfm)\n"
+diff --git a/source/gameengine/Physics/Bullet/CcdPhysicsEnvironment.cpp b/source/gameengine/Physics/Bullet/CcdPhysicsEnvironment.cpp
+index e106f48..3a33357 100644
+--- a/source/gameengine/Physics/Bullet/CcdPhysicsEnvironment.cpp
++++ b/source/gameengine/Physics/Bullet/CcdPhysicsEnvironment.cpp
+@@ -506,6 +506,10 @@ m_scalingPropagated(false)
+ 	m_dynamicsWorld = new btSoftRigidDynamicsWorldMt(dispatcher, m_broadphase, m_bnSolverPool, m_solver, m_collisionConfiguration);
+ 	btNextConfigureWorld(m_dynamicsWorld);
+ 	btNextSetLinkedCollisionWhileEnabled(true);
++	/* Bullet NEXT (Stage 0, CS.1): an impact's overlap is pushed out by split impulse at the Contact
++	 * ERP, which adds no speed: a bounce leaves at its restitution, not faster. Resting contacts are
++	 * corrected as Bullet 2.84 (2.79b) did them, at the ERP. */
++	m_dynamicsWorld->getSolverInfo().m_bnContactErpRule = 4;
+ #else
+ 	SetSolverType(1);//issues with quickstep and memory allocations
+ //	m_dynamicsWorld = new btDiscreteDynamicsWorld(dispatcher,m_broadphase,m_solver,m_collisionConfiguration);
