@@ -20,6 +20,10 @@ subject to the following restrictions:
 #include "BulletCollision/BroadphaseCollision/btSimpleBroadphase.h"
 #include "BulletCollision/BroadphaseCollision/btCollisionAlgorithm.h"
 #include "BulletCollision/CollisionShapes/btCollisionShape.h"
+#include "BulletCollision/CollisionShapes/btBvhTriangleMeshShape.h"
+#include "BulletCollision/CollisionShapes/btScaledBvhTriangleMeshShape.h"
+#include "BulletCollision/CollisionShapes/btHeightfieldTerrainShape.h"
+#include "BulletCollision/CollisionShapes/btTriangleCallback.h"
 #include "BulletCollision/CollisionDispatch/btSimulationIslandManager.h"
 #include "LinearMath/btTransformUtil.h"
 #include "LinearMath/btQuickprof.h"
@@ -884,6 +888,109 @@ public:
 	}
 };
 
+// Bullet NEXT (Stage 0, CS.1b): continuous collision against triangle meshes and heightfields
+// that have internal-edge data (btNextEnableActiveEdges). A sweep that grazes the shared edge of
+// two triangles returns the edge's direction as the normal; for a body sliding fast over the
+// surface that normal leans back against the motion, so the sweep reported an impact and the
+// approach-velocity removal threw the body up (5-10 m/s at 30-50 m/s over a flat heightfield).
+// Here the hit takes the face normal of the triangle hit, found again by its part and index in
+// the swept box, so sliding along a surface is never an impact.
+namespace
+{
+struct BnFindTriangle : public btTriangleCallback
+{
+	int m_part, m_index;
+	bool m_found;
+	btVector3 m_v[3];
+	BnFindTriangle(int part, int index) : m_part(part), m_index(index), m_found(false) {}
+	virtual void processTriangle(btVector3* triangle, int partId, int triangleIndex)
+	{
+		if (m_found || partId != m_part || triangleIndex != m_index)
+			return;
+		m_v[0] = triangle[0];
+		m_v[1] = triangle[1];
+		m_v[2] = triangle[2];
+		m_found = true;
+	}
+};
+
+const btTriangleInfoMap* bnEdgeInfo(const btCollisionShape* shape)
+{
+	switch (shape->getShapeType())
+	{
+		case SCALED_TRIANGLE_MESH_SHAPE_PROXYTYPE:
+			return static_cast<const btScaledBvhTriangleMeshShape*>(shape)->getChildShape()->getTriangleInfoMap();
+		case TRIANGLE_MESH_SHAPE_PROXYTYPE:
+			return static_cast<const btBvhTriangleMeshShape*>(shape)->getTriangleInfoMap();
+		case TERRAIN_SHAPE_PROXYTYPE:
+			return static_cast<const btHeightfieldTerrainShape*>(shape)->getTriangleInfoMap();
+		default:
+			return 0;
+	}
+}
+}  // namespace
+
+class BnCcdSweepCallback : public btClosestNotMeConvexResultCallback
+{
+public:
+	btVector3 m_sweptMin, m_sweptMax;  // world box around the swept body
+
+	BnCcdSweepCallback(btCollisionObject* me, const btVector3& fromA, const btVector3& toA, btOverlappingPairCache* pairCache,
+					   btDispatcher* dispatcher, const btVector3& sweptMin, const btVector3& sweptMax)
+		: btClosestNotMeConvexResultCallback(me, fromA, toA, pairCache, dispatcher), m_sweptMin(sweptMin), m_sweptMax(sweptMax)
+	{
+	}
+
+	virtual btScalar addSingleResult(btCollisionWorld::LocalConvexResult& convexResult, bool normalInWorldSpace)
+	{
+		const btCollisionObject* obj = convexResult.m_hitCollisionObject;
+		// only a hit that would count (nearer than the best so far, and approaching along the
+		// normal as reported) is worth the lookup
+		if (normalInWorldSpace && convexResult.m_localShapeInfo && obj != m_me && convexResult.m_hitFraction < m_closestHitFraction &&
+			convexResult.m_hitNormalLocal.dot(m_convexToWorld - m_convexFromWorld) < -m_allowedPenetration &&
+			bnEdgeInfo(obj->getCollisionShape()))
+		{
+			// the swept box in the shape's own space
+			const btTransform& t = obj->getWorldTransform();
+			const btTransform inv = t.inverse();
+			btVector3 lo(BT_LARGE_FLOAT, BT_LARGE_FLOAT, BT_LARGE_FLOAT), hi(-BT_LARGE_FLOAT, -BT_LARGE_FLOAT, -BT_LARGE_FLOAT);
+			for (int k = 0; k < 8; ++k)
+			{
+				const btVector3 c((k & 1) ? m_sweptMax.x() : m_sweptMin.x(), (k & 2) ? m_sweptMax.y() : m_sweptMin.y(), (k & 4) ? m_sweptMax.z() : m_sweptMin.z());
+				const btVector3 l = inv * c;
+				lo.setMin(l);
+				hi.setMax(l);
+			}
+			BnFindTriangle find(convexResult.m_localShapeInfo->m_shapePart, convexResult.m_localShapeInfo->m_triangleIndex);
+			static_cast<const btConcaveShape*>(obj->getCollisionShape())->processAllTriangles(&find, lo, hi);
+			if (find.m_found)
+			{
+				btVector3 n = t.getBasis() * (find.m_v[1] - find.m_v[0]).cross(find.m_v[2] - find.m_v[0]);
+				if (n.length2() > SIMD_EPSILON)
+				{
+					n.normalize();
+					if (n.dot(convexResult.m_hitNormalLocal) < 0)
+						n = -n;
+					convexResult.m_hitNormalLocal = n;
+				}
+			}
+		}
+		return btClosestNotMeConvexResultCallback::addSingleResult(convexResult, normalInWorldSpace);
+	}
+};
+
+// The box around a body's shape at two transforms (the start and the end of a sweep).
+static void bnSweptAabb(const btRigidBody* body, const btTransform& from, const btTransform& to, btVector3& mn, btVector3& mx)
+{
+	btVector3 a0, a1, b0, b1;
+	body->getCollisionShape()->getAabb(from, a0, a1);
+	body->getCollisionShape()->getAabb(to, b0, b1);
+	mn = a0;
+	mn.setMin(b0);
+	mx = a1;
+	mx.setMax(b1);
+}
+
 ///internal debugging variable. this value shouldn't be too high
 int gNumClampedCcdMotions = 0;
 
@@ -997,13 +1104,15 @@ void btDiscreteDynamicsWorld::bnSweepPredictive(btRigidBody** bodies, int numBod
 		btScalar squareMotion = (predictedTrans.getOrigin() - body->getWorldTransform().getOrigin()).length2();
 		if (!(getDispatchInfo().m_useContinuous && body->getCcdSquareMotionThreshold() && body->getCcdSquareMotionThreshold() < squareMotion && body->getCollisionShape()->isConvex()))
 			continue;
-		btClosestNotMeConvexResultCallback sweepResults(body, body->getWorldTransform().getOrigin(), predictedTrans.getOrigin(), getBroadphase()->getOverlappingPairCache(), getDispatcher());
+		btTransform modifiedPredictedTrans = predictedTrans;
+		modifiedPredictedTrans.setBasis(body->getWorldTransform().getBasis());
+		btVector3 sweptMin, sweptMax;
+		bnSweptAabb(body, body->getWorldTransform(), modifiedPredictedTrans, sweptMin, sweptMax);
+		BnCcdSweepCallback sweepResults(body, body->getWorldTransform().getOrigin(), predictedTrans.getOrigin(), getBroadphase()->getOverlappingPairCache(), getDispatcher(), sweptMin, sweptMax);
 		btSphereShape tmpSphere(body->getCcdSweptSphereRadius());
 		sweepResults.m_allowedPenetration = getDispatchInfo().m_allowedCcdPenetration;
 		sweepResults.m_collisionFilterGroup = body->getBroadphaseProxy()->m_collisionFilterGroup;
 		sweepResults.m_collisionFilterMask = body->getBroadphaseProxy()->m_collisionFilterMask;
-		btTransform modifiedPredictedTrans = predictedTrans;
-		modifiedPredictedTrans.setBasis(body->getWorldTransform().getBasis());
 		const btConvexShape* castShape = body->getCcdShapeCast() ? static_cast<const btConvexShape*>(body->getCollisionShape()) : static_cast<const btConvexShape*>(&tmpSphere);
 		convexSweepTest(castShape, body->getWorldTransform(), modifiedPredictedTrans, sweepResults);
 		if (sweepResults.hasHit() && (sweepResults.m_closestHitFraction < 1.f))
@@ -1195,13 +1304,15 @@ void btDiscreteDynamicsWorld::bnSweepTransforms(btRigidBody** bodies, int numBod
 		btScalar squareMotion = (predictedTrans.getOrigin() - body->getWorldTransform().getOrigin()).length2();
 		if (getDispatchInfo().m_useContinuous && body->getCcdSquareMotionThreshold() && body->getCcdSquareMotionThreshold() < squareMotion && body->getCollisionShape()->isConvex())
 		{
-			btClosestNotMeConvexResultCallback sweepResults(body, body->getWorldTransform().getOrigin(), predictedTrans.getOrigin(), getBroadphase()->getOverlappingPairCache(), getDispatcher());
+			btTransform modifiedPredictedTrans = predictedTrans;
+			modifiedPredictedTrans.setBasis(body->getWorldTransform().getBasis());
+			btVector3 sweptMin, sweptMax;
+			bnSweptAabb(body, body->getWorldTransform(), modifiedPredictedTrans, sweptMin, sweptMax);
+			BnCcdSweepCallback sweepResults(body, body->getWorldTransform().getOrigin(), predictedTrans.getOrigin(), getBroadphase()->getOverlappingPairCache(), getDispatcher(), sweptMin, sweptMax);
 			btSphereShape tmpSphere(body->getCcdSweptSphereRadius());
 			sweepResults.m_allowedPenetration = getDispatchInfo().m_allowedCcdPenetration;
 			sweepResults.m_collisionFilterGroup = body->getBroadphaseProxy()->m_collisionFilterGroup;
 			sweepResults.m_collisionFilterMask = body->getBroadphaseProxy()->m_collisionFilterMask;
-			btTransform modifiedPredictedTrans = predictedTrans;
-			modifiedPredictedTrans.setBasis(body->getWorldTransform().getBasis());
 			const btConvexShape* castShape = body->getCcdShapeCast() ? static_cast<const btConvexShape*>(body->getCollisionShape()) : static_cast<const btConvexShape*>(&tmpSphere);
 			convexSweepTest(castShape, body->getWorldTransform(), modifiedPredictedTrans, sweepResults);
 			if (sweepResults.hasHit() && (sweepResults.m_closestHitFraction < 1.f))

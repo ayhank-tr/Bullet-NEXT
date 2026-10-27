@@ -41,8 +41,10 @@ struct btSoftStepSettings
 	                                 ///< under load, up to a quarter of the rate they start to shake)
 	btScalar m_contactDampingRatio;  ///< contact damping ratio
 	btScalar m_contactPushMaxVelocity;  ///< fastest speed at which overlap is pushed out (m/s)
-	btScalar m_jointHertz;           ///< joint position correction, as a spring frequency; 0: Bullet's ERP
-	                                 ///< (the world's m_erp) on every substep
+	btScalar m_jointHertz;           ///< joint position correction, as a spring frequency (capped at half
+	                                 ///< the substep rate); 0: Bullet's ERP (the world's m_erp) on every
+	                                 ///< substep. At 540 substeps per second a grid of 764 joints starts
+	                                 ///< to gain energy above about 220 Hz (Stage 0: 120 -> 200 Hz)
 	btScalar m_jointDampingRatio;    ///< joint correction damping ratio
 	int m_iterations;                ///< solve passes per substep (with position bias)
 	int m_relaxIterations;           ///< relax passes per substep (velocity only, no position bias)
@@ -56,7 +58,7 @@ struct btSoftStepSettings
 		  m_contactHertz(0),
 		  m_contactDampingRatio(10),
 		  m_contactPushMaxVelocity(3),
-		  m_jointHertz(120),
+		  m_jointHertz(200),
 		  m_jointDampingRatio(5),
 		  m_iterations(1),
 		  m_relaxIterations(1),
@@ -185,6 +187,7 @@ private:
 		int m_prevRows;                     // rows last substep (warm start only when unchanged)
 		int m_firstImpulse;                 // into m_jointImpulses: per-row impulse kept between substeps
 		int m_maxRows;
+		int m_rigid;                        // bit per row: an angular row keeps Bullet's ERP, not the soft spring
 		// the rows without limits, solved together as one block: LDL^T factor of
 		// K = J M^-1 J^T (+ Bullet's cfm on the diagonal)
 		int m_blockCount;                   // 0: every row on its own

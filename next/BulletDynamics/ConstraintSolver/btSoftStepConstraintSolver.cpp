@@ -381,6 +381,7 @@ void btSoftStepConstraintSolver::prepareJoints(btTypedConstraint** constraints, 
 		j.m_b = bodyIndex(&c->getRigidBodyB(), 0);
 		j.m_firstRow = 0;
 		j.m_numRows = 0;
+		j.m_rigid = 0;
 		j.m_maxRows = btTypedConstraint::BN_MAX_WARM_ROWS;  // the most rows a btTypedConstraint has:
 		                   // btGeneric6DofSpring2Constraint's limit, motor and spring on each of its six axes
 		// warm start from the last substep of the previous step, while the rows are the same
@@ -501,11 +502,26 @@ void btSoftStepConstraintSolver::buildJointRows(const btContactSolverInfo& info,
 		const Body& A = m_bodies[j.m_a];
 		const Body& B = m_bodies[j.m_b];
 		const btScalar breaking = c->getBreakingImpulseThreshold();
+		// Stage 0: angular rows (a hinge's locked rotations, a motor, an angular limit) keep Bullet's
+		// ERP on every substep. Their soft spring let an axis lean under load more than Bullet's
+		// solver does; the energy gain that soft joints prevent came from linear rows in chains.
+		j.m_rigid = 0;
+		if (softJoints)
+		{
+			for (int r = 0; r < j.m_numRows; ++r)
+			{
+				const btSolverConstraint& row = m_rows[j.m_firstRow + r];
+				if (row.m_contactNormal1.length2() == 0 && row.m_contactNormal2.length2() == 0)
+					j.m_rigid |= 1 << r;
+			}
+		}
 		for (int r = 0; r < j.m_numRows; ++r)
 		{
 			const int idx = j.m_firstRow + r;
 			btSolverConstraint& row = m_rows[idx];
-			if (softJoints)
+			if (j.m_rigid & (1 << r))
+				row.m_rhs = m_rowTarget0[idx] + info.m_erp * (row.m_rhs - m_rowTarget0[idx]);
+			else if (softJoints)
 				row.m_rhs = m_rowTarget0[idx] + soft.biasRate * h * (row.m_rhs - m_rowTarget0[idx]);
 			// m_frictionIndex (unused by joints) marks the rows without limits: they go to the block,
 			// and a breakable joint's are not capped at the threshold (it breaks on the step's total)
@@ -703,11 +719,11 @@ void btSoftStepConstraintSolver::solveJoints(bool useBias)
 {
 	// soft (solve pass): dl = massScale K^-1 (target - Jv) - impulseScale l, Box2D's soft
 	// constraint on the whole block; rigid (relax pass): dl = K^-1 (target - Jv)
-	const btScalar ms = useBias ? m_jointMassScale : btScalar(1);
-	const btScalar is = useBias ? m_jointImpulseScale : btScalar(0);
 	for (int i = 0; i < m_joints.size(); ++i)
 	{
 		const Joint& j = m_joints[i];
+		const btScalar msSoft = useBias ? m_jointMassScale : btScalar(1);
+		const btScalar isSoft = useBias ? m_jointImpulseScale : btScalar(0);
 		Body& A = m_bodies[j.m_a];
 		Body& B = m_bodies[j.m_b];
 		int inBlock = 0;  // bit per row
@@ -744,7 +760,8 @@ void btSoftStepConstraintSolver::solveJoints(bool useBias)
 				const int r = j.m_blockRow[a];
 				const btSolverConstraint& row = m_rows[j.m_firstRow + r];
 				btScalar& lambda = m_jointImpulses[j.m_firstImpulse + r];
-				const btScalar d = ms * x[a] - is * lambda;
+				const bool rigid = (j.m_rigid >> r) & 1;
+				const btScalar d = (rigid ? btScalar(1) : msSoft) * x[a] - (rigid ? btScalar(0) : isSoft) * lambda;
 				lambda += d;
 				A.m_v += A.m_invMass * row.m_contactNormal1 * d;
 				A.m_w += row.m_angularComponentA * d;
@@ -764,6 +781,8 @@ void btSoftStepConstraintSolver::solveJoints(bool useBias)
 			const btScalar target = useBias ? row.m_rhs : m_rowTarget0[idx];
 			const btScalar jv = row.m_contactNormal1.dot(A.m_v) + row.m_relpos1CrossNormal.dot(A.m_w) + row.m_contactNormal2.dot(B.m_v) + row.m_relpos2CrossNormal.dot(B.m_w);
 			btScalar& lambda = m_jointImpulses[j.m_firstImpulse + r];
+			const bool rigid = (j.m_rigid >> r) & 1;
+			const btScalar ms = rigid ? btScalar(1) : msSoft, is = rigid ? btScalar(0) : isSoft;
 			const btScalar delta = ms * (target - jv - m_rowEps[idx] * lambda) / k - is * lambda;
 			const btScalar next = clampScalar(lambda + delta, row.m_lowerLimit, row.m_upperLimit);
 			const btScalar d = next - lambda;

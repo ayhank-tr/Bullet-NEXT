@@ -70,6 +70,16 @@ struct btContactSolverInfoData
 	bool m_jointFeedbackInJointFrame;
 	int m_reportSolverAnalytics;
 	int m_numNonContactInnerIterations;
+	/// Bullet NEXT (Stage 0, CS.1): how a contact corrects overlap. 0 (upstream): m_erp2, in the
+	/// velocity for overlaps shallower than m_splitImpulsePenetrationThreshold, by split impulse for
+	/// deeper ones; the velocity part makes bodies leave a contact faster than they hit it.
+	/// 1 (Bullet 2.84, Blender 2.79b): the same, but m_erp for the velocity part. 2: m_erp2 by split
+	/// impulse for every overlap (correcting overlap never adds speed; tall stacks sink). 3: as 0,
+	/// but an impact (approaching faster than m_restitutionVelocityThreshold) pushes its overlap out
+	/// by split impulse. 4: as 1 for resting contacts, as 3 for impacts, so a bounce leaves at its
+	/// restitution and resting contacts are corrected as in Bullet 2.84 (Bullet NEXT's choice for
+	/// BGE). 2, 3 and 4 need m_splitImpulse.
+	int m_bnContactErpRule;
 };
 
 struct btContactSolverInfo : public btContactSolverInfoData
@@ -110,6 +120,7 @@ struct btContactSolverInfo : public btContactSolverInfoData
 		m_jointFeedbackInJointFrame = false;
 		m_reportSolverAnalytics = 0;
 		m_numNonContactInnerIterations = 1;   // the number of inner iterations for solving motor constraint in a single iteration of the constraint solve
+		m_bnContactErpRule = 0;  // Bullet NEXT: upstream rule unless a host asks for another
 	}
 };
 

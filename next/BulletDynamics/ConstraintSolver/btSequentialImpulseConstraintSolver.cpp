@@ -830,18 +830,23 @@ void btSequentialImpulseConstraintSolver::setupContactConstraint(btSolverConstra
 
 	btScalar cfm = infoGlobal.m_globalCfm;
 	btScalar erp = infoGlobal.m_erp2;
+	bool erpFromInfo = true;  // Bullet NEXT (CS.1): not set by the contact itself
 
 	if ((cp.m_contactPointFlags & BT_CONTACT_FLAG_HAS_CONTACT_CFM) || (cp.m_contactPointFlags & BT_CONTACT_FLAG_HAS_CONTACT_ERP))
 	{
 		if (cp.m_contactPointFlags & BT_CONTACT_FLAG_HAS_CONTACT_CFM)
 			cfm = cp.m_contactCFM;
 		if (cp.m_contactPointFlags & BT_CONTACT_FLAG_HAS_CONTACT_ERP)
+		{
 			erp = cp.m_contactERP;
+			erpFromInfo = false;
+		}
 	}
 	else
 	{
 		if (cp.m_contactPointFlags & BT_CONTACT_FLAG_CONTACT_STIFFNESS_DAMPING)
 		{
+			erpFromInfo = false;
 			btScalar denom = (infoGlobal.m_timeStep * cp.m_combinedContactStiffness1 + cp.m_combinedContactDamping1);
 			if (denom < SIMD_EPSILON)
 			{
@@ -907,6 +912,11 @@ void btSequentialImpulseConstraintSolver::setupContactConstraint(btSolverConstra
 	btScalar restitution = 0.f;
 	btScalar penetration = cp.getDistance() + infoGlobal.m_linearSlop;
 
+	// Bullet NEXT (Stage 0, CS.1, see btContactSolverInfo::m_bnContactErpRule): upstream corrects a
+	// shallow overlap in the velocity with m_erp2; with BGE's 0.8, bodies came back from a bounce
+	// faster than they hit. Rules 1 and 4 use m_erp there, as Bullet 2.84 did; rules 2, 3 and 4 push
+	// overlaps out by split impulse (every one, or an impact's), which adds no speed.
+
 	{
 		btVector3 vel1, vel2;
 
@@ -955,6 +965,15 @@ void btSequentialImpulseConstraintSolver::setupContactConstraint(btSolverConstra
 		btScalar positionalError = 0.f;
 		btScalar velocityError = restitution - rel_vel;  // * damping;
 
+		// Bullet NEXT (CS.1): which overlaps go by split impulse (rules 2, 3 and 4), and which ERP
+		// corrects the rest in the velocity (m_erp under rules 1 and 4, as Bullet 2.84 did)
+		const int bnRule = infoGlobal.m_bnContactErpRule;
+		const bool bnImpact = penetration <= 0 && rel_vel < -infoGlobal.m_restitutionVelocityThreshold;
+		const bool bnSplitAll = penetration <= 0 && (bnRule == 2 || ((bnRule == 3 || bnRule == 4) && bnImpact));
+		if ((bnRule == 1 || bnRule == 4) && erpFromInfo && !bnSplitAll &&
+			(!infoGlobal.m_splitImpulse || (penetration > infoGlobal.m_splitImpulsePenetrationThreshold)))
+			erp = infoGlobal.m_erp;
+
 		if (penetration > 0)
 		{
 			positionalError = 0;
@@ -969,7 +988,7 @@ void btSequentialImpulseConstraintSolver::setupContactConstraint(btSolverConstra
 		btScalar penetrationImpulse = positionalError * solverConstraint.m_jacDiagABInv;
 		btScalar velocityImpulse = velocityError * solverConstraint.m_jacDiagABInv;
 
-		if (!infoGlobal.m_splitImpulse || (penetration > infoGlobal.m_splitImpulsePenetrationThreshold))
+		if (!infoGlobal.m_splitImpulse || (penetration > infoGlobal.m_splitImpulsePenetrationThreshold && !bnSplitAll))
 		{
 			//combine position and velocity into rhs
 			solverConstraint.m_rhs = penetrationImpulse + velocityImpulse;  //-solverConstraint.m_contactNormal1.dot(bodyA->m_externalForce*bodyA->m_invMass-bodyB->m_externalForce/bodyB->m_invMass)*solverConstraint.m_jacDiagABInv;
