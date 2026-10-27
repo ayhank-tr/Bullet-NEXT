@@ -4,7 +4,7 @@
 
 #include "bn_world.h"
 
-namespace bn {
+BN_NAMESPACE_BEGIN
 
 // Per-body state per frame: position(3), rotation quaternion xyzw(4), linear(3), angular(3).
 const int kFloatsPerBody = 13;
@@ -42,6 +42,12 @@ class Recorder {
 
 FrameMetrics measure(World& w);
 
-}  // namespace bn
+// The per-frame state hash the recorder uses (optionally keeping the frame's data), and the chain
+// that gives the final hash. Shared by the recorder and the Lab engine (bn_engine.cpp).
+u64 hashFrame(World& w, std::vector<float>* state = 0, std::vector<int>* evInts = 0,
+              std::vector<float>* evFloats = 0);
+u64 chainHash(u64 chain, u64 frameHash);
+
+BN_NAMESPACE_END  // namespace bn
 
 #endif

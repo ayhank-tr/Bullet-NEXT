@@ -4,7 +4,7 @@
 #include <cmath>
 #include <cstring>
 
-namespace bn {
+BN_NAMESPACE_BEGIN
 
 Recorder::Recorder(const std::string& scene, World& w)
     : m_scene(scene), m_bodies((int)w.bodies().size()) {}
@@ -30,13 +30,14 @@ static void bodyState(const BodyRec& b, float* out) {
   std::memcpy(out, v, sizeof(v));
 }
 
-void Recorder::capture(World& w, const FrameMetrics& m) {
+u64 hashFrame(World& w, std::vector<float>* state, std::vector<int>* evInts, std::vector<float>* evFloats) {
   Hash64 h;
   float s[kFloatsPerBody];
-  for (int i = 0; i < m_bodies; ++i) {
+  const int bodies = (int)w.bodies().size();
+  for (int i = 0; i < bodies; ++i) {
     const BodyRec& b = w.bodies()[i];
     bodyState(b, s);
-    m_state.insert(m_state.end(), s, s + kFloatsPerBody);
+    if (state) state->insert(state->end(), s, s + kFloatsPerBody);
     h.bytes(s, sizeof(s));
     if (b.soft) {  // every node position feeds the hash
       for (int n = 0; n < b.soft->m_nodes.size(); ++n) {
@@ -46,20 +47,30 @@ void Recorder::capture(World& w, const FrameMetrics& m) {
     }
   }
   const std::vector<ContactEvent>& ev = w.events();
-  m_eventCounts.push_back((int)ev.size());
   h.i((int)ev.size());
   for (size_t i = 0; i < ev.size(); ++i) {
     const ContactEvent& e = ev[i];
-    m_eventInts.push_back(e.a); m_eventInts.push_back(e.b);
     const float f[9] = {(float)e.p1.x(), (float)e.p1.y(), (float)e.p1.z(),
                         (float)e.p2.x(), (float)e.p2.y(), (float)e.p2.z(),
                         (float)e.normal.x(), (float)e.normal.y(), (float)e.normal.z()};
-    m_eventFloats.insert(m_eventFloats.end(), f, f + 9);
+    if (evInts) { evInts->push_back(e.a); evInts->push_back(e.b); }
+    if (evFloats) evFloats->insert(evFloats->end(), f, f + 9);
     h.i(e.a); h.i(e.b); h.bytes(f, sizeof(f));
   }
-  m_hashes.push_back(h.h);
+  return h.h;
+}
+
+u64 chainHash(u64 chain, u64 frameHash) {
+  Hash64 fin; fin.h = chain; fin.bytes(&frameHash, sizeof(frameHash));
+  return fin.h;
+}
+
+void Recorder::capture(World& w, const FrameMetrics& m) {
+  const u64 h = hashFrame(w, &m_state, &m_eventInts, &m_eventFloats);
+  m_eventCounts.push_back((int)w.events().size());
+  m_hashes.push_back(h);
   m_metrics.push_back(m);
-  Hash64 fin; fin.h = m_final; fin.bytes(&h.h, sizeof(h.h)); m_final = fin.h;
+  m_final = chainHash(m_final, h);
 }
 
 // File layout (little endian):
@@ -165,4 +176,4 @@ FrameMetrics measure(World& w) {
   return m;
 }
 
-}  // namespace bn
+BN_NAMESPACE_END  // namespace bn
