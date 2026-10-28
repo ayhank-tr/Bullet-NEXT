@@ -47,6 +47,11 @@ struct btConnectivityProcessor : public btTriangleCallback
 	int m_triangleIndexA;
 	btVector3* m_triangleVerticesA;
 	btTriangleInfoMap* m_triangleInfoMap;
+	// Bullet NEXT (Stage 1): when set, triangle A's data goes here instead of into the map
+	btTriangleInfo* m_bnTarget;
+	bool m_bnFound;
+
+	btConnectivityProcessor() : m_bnTarget(0), m_bnFound(false) {}
 
 	virtual void processTriangle(btVector3* triangle, int partId, int triangleIndex)
 	{
@@ -130,7 +135,8 @@ struct btConnectivityProcessor : public btTriangleCallback
 
 				int hash = m_triangleInfoMap->bnKey(m_partIdA, m_triangleIndexA);
 
-				btTriangleInfo* info = m_triangleInfoMap->find(hash);
+				btTriangleInfo* info = m_bnTarget ? m_bnTarget : m_triangleInfoMap->find(hash);
+				m_bnFound = true;
 				if (!info)
 				{
 					btTriangleInfo tmp;
@@ -420,6 +426,41 @@ void btGenerateInternalEdgeInfo(btHeightfieldTerrainShape* heightfieldShape, btT
 
 }
 
+const btTriangleInfo* btNextFindTriangleInfo(const btTriangleInfoMap* map, const btVector3* triangleVertices,
+											 int partId, int triangleIndex, btTriangleInfo& scratch)
+{
+	if (!map)
+		return 0;
+	if (!map->m_bnHeightfield)
+		return map->find(map->bnKey(partId, triangleIndex));
+	// The bake's own step for one triangle: every triangle of the heightfield inside this one's
+	// bounds is tested for a shared edge, with the same thresholds and the same formulas.
+	btVector3 verts[3] = {triangleVertices[0], triangleVertices[1], triangleVertices[2]};
+	btConnectivityProcessor connectivityProcessor;
+	connectivityProcessor.m_partIdA = partId;
+	connectivityProcessor.m_triangleIndexA = triangleIndex;
+	connectivityProcessor.m_triangleVerticesA = verts;
+	connectivityProcessor.m_triangleInfoMap = const_cast<btTriangleInfoMap*>(map);  // read for its thresholds only
+	scratch = btTriangleInfo();
+	connectivityProcessor.m_bnTarget = &scratch;
+	btVector3 aabbMin = verts[0], aabbMax = verts[0];
+	aabbMin.setMin(verts[1]);
+	aabbMax.setMax(verts[1]);
+	aabbMin.setMin(verts[2]);
+	aabbMax.setMax(verts[2]);
+	map->m_bnHeightfield->processAllTriangles(&connectivityProcessor, aabbMin, aabbMax);
+	return connectivityProcessor.m_bnFound ? &scratch : 0;
+}
+
+void btNextUseComputedEdgeInfo(btHeightfieldTerrainShape* heightfieldShape, btTriangleInfoMap* triangleInfoMap)
+{
+	if (heightfieldShape->getTriangleInfoMap())
+		return;
+	triangleInfoMap->m_bnHeightfieldKeys = true;
+	triangleInfoMap->m_bnHeightfield = heightfieldShape;
+	heightfieldShape->setTriangleInfoMap(triangleInfoMap);
+}
+
 // Given a point and a line segment (defined by two points), compute the closest point
 // in the line.  Cap the point at the endpoints of the line segment.
 void btNearestPointInLineSegment(const btVector3& point, const btVector3& line0, const btVector3& line1, btVector3& nearestPoint)
@@ -537,15 +578,14 @@ void btAdjustInternalEdgeContacts(btManifoldPoint& cp, const btCollisionObjectWr
 	if (!triangleInfoMapPtr)
 		return;
 
-	int hash = triangleInfoMapPtr->bnKey(partId0, index0);
-
-	btTriangleInfo* info = triangleInfoMapPtr->find(hash);
+	const btTriangleShape* tri_shape = static_cast<const btTriangleShape*>(colObj0Wrap->getCollisionShape());
+	btTriangleInfo bnScratch;
+	const btTriangleInfo* info = btNextFindTriangleInfo(triangleInfoMapPtr, tri_shape->m_vertices1, partId0, index0, bnScratch);
 	if (!info)
 		return;
 
 	btScalar frontFacing = (normalAdjustFlags & BT_TRIANGLE_CONVEX_BACKFACE_MODE) == 0 ? 1.f : -1.f;
 
-	const btTriangleShape* tri_shape = static_cast<const btTriangleShape*>(colObj0Wrap->getCollisionShape());
 	btVector3 v0, v1, v2;
 	tri_shape->getVertex(0, v0);
 	tri_shape->getVertex(1, v1);

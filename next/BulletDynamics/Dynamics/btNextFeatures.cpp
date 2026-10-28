@@ -92,14 +92,14 @@ static void flatRegionNormal(btManifoldPoint& cp, const btCollisionObjectWrapper
 	btTriangleInfoMap* map = meshInfoMap(triWrap);
 	if (!map)
 		return;
-	const int hash = map->bnKey(partId, index);
-	const btTriangleInfo* info = map->find(hash);
+	const btTriangleShape* tri = static_cast<const btTriangleShape*>(triWrap->getCollisionShape());
+	btTriangleInfo scratch;  // a heightfield's data is worked out here (Stage 1)
+	const btTriangleInfo* info = btNextFindTriangleInfo(map, tri->m_vertices1, partId, index, scratch);
 	if (!info)
 		return;
 	const btScalar flat = btScalar(0.0873);  // 5 degrees
 	if (btFabs(info->m_edgeV0V1Angle) > flat || btFabs(info->m_edgeV1V2Angle) > flat || btFabs(info->m_edgeV2V0Angle) > flat)
 		return;
-	const btTriangleShape* tri = static_cast<const btTriangleShape*>(triWrap->getCollisionShape());
 	btVector3 n;
 	tri->calcNormal(n);
 	n = triWrap->getWorldTransform().getBasis() * n;
@@ -200,9 +200,11 @@ static int bakeEdgeInfo(btCollisionShape* shape)
 		btHeightfieldTerrainShape* hf = static_cast<btHeightfieldTerrainShape*>(shape);
 		if (!hf->getTriangleInfoMap())
 		{
+			// Stage 1: no bake. The map stays empty and each contact works out its triangle's edge
+			// data from the heights around it (a 3 km field at 1 m took 25.6 s and 1 GB to bake).
 			btTriangleInfoMap* map = new btTriangleInfoMap();
 			map->m_bnOwnedByShape = true;  // the heightfield shape deletes it
-			btGenerateInternalEdgeInfo(hf, map);
+			btNextUseComputedEdgeInfo(hf, map);
 		}
 		return 1;
 	}

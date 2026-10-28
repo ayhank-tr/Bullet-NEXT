@@ -29,6 +29,17 @@ void btGenerateInternalEdgeInfo(btBvhTriangleMeshShape* trimeshShape, btTriangle
 
 void btGenerateInternalEdgeInfo(btHeightfieldTerrainShape* trimeshShape, btTriangleInfoMap* triangleInfoMap);
 
+/// Bullet NEXT (Stage 1): the edge data of one triangle (vertices in the shape's local space, as
+/// the collision callbacks give them). From the map, or worked out from the heightfield's heights
+/// when the map is a heightfield's computed one; then the result is written to scratch. Returns
+/// 0 when the triangle has no data (no neighbour shares an edge), as a baked map would.
+const btTriangleInfo* btNextFindTriangleInfo(const btTriangleInfoMap* map, const btVector3* triangleVertices,
+											 int partId, int triangleIndex, btTriangleInfo& scratch);
+
+/// Bullet NEXT (Stage 1): makes the map a heightfield's computed one (no bake) and gives it to the
+/// heightfield. The heightfield must not have a map yet.
+void btNextUseComputedEdgeInfo(btHeightfieldTerrainShape* heightfieldShape, btTriangleInfoMap* triangleInfoMap);
+
 ///Call the btFixMeshNormal to adjust the collision normal, using the triangle info map (generated using btGenerateInternalEdgeInfo)
 ///If this info map is missing, or the triangle is not store in this map, nothing will be done
 void btAdjustInternalEdgeContacts(btManifoldPoint& cp, const btCollisionObjectWrapper* trimeshColObj0Wrap, const btCollisionObjectWrapper* otherColObj1Wrap, int partId0, int index0, int normalAdjustFlags = 0);

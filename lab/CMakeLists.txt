@@ -129,6 +129,12 @@ endforeach()
 add_executable(bnl_fuzz tools/bnl_fuzz.cpp)
 target_link_libraries(bnl_fuzz PRIVATE bnl_engines)
 
+# Heightfield edge data: worked out against baked, and their cost (Stage 1: T1S.1, T1S.3, B1S.1).
+if(TARGET bn_bullet_next AND NOT EMSCRIPTEN)
+  add_executable(bnl_edgecheck tools/bnl_edgecheck.cpp)
+  target_link_libraries(bnl_edgecheck PRIVATE bn_bullet_next bnl_core)
+endif()
+
 add_executable(bnl_run tools/bnl_run.cpp)
 target_link_libraries(bnl_run PRIVATE bnl_engines)
 target_compile_definitions(bnl_run PRIVATE BN_SCENES_DIR="${BN_LAB_SCENES_DIR}")

@@ -102,6 +102,14 @@ def main():
     # 2. cbtNextCollision.h/.cpp: the collision-only part of btNextFeatures
     src = open(os.path.join(NX, "BulletDynamics", "Dynamics", "btNextFeatures.cpp")).read()
     body = src[src.index("int btNextEnableHullClipping"):src.index("// --- CCD")]
+    # Chrono's copy has no heightfield edge data and none of Stage 0/1's map additions: a mesh
+    # triangle's data is found with the upstream key (unique for meshes).
+    for old, rep in (("btNextFindTriangleInfo(map, tri->m_vertices1, partId, index, scratch)",
+                      "map->find((partId << (31 - MAX_NUM_PARTS_IN_BITS)) | index)"),
+                     ("\tbtTriangleInfo scratch;  // a heightfield's data is worked out here (Stage 1)\n", "")):
+        if body.count(old) != 1:
+            sys.exit(f"btNextFeatures.cpp: anchor not found once: {old[:60]!r}")
+        body = body.replace(old, rep)
     includes = "".join(l + "\n" for l in src.splitlines() if l.startswith('#include "BulletCollision/'))
     cpp = ("/*\nBullet NEXT collision features for Chrono's Bullet copy (F1, T1.7).\n"
            "Copyright (c) 2026 BGE NEXT contributors. Same zlib terms as Bullet.\n\n"

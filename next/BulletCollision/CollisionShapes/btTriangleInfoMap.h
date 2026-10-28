@@ -69,6 +69,10 @@ struct btTriangleInfoMap : public btInternalTriangleInfoMap
 	// triangles of columns 8 apart shared one entry, so terrain got its neighbours' edge angles.
 	// Heightfields use part << 15 | index (up to 65,536 columns and 32,768 rows).
 	bool m_bnHeightfieldKeys;
+	// Bullet NEXT (Stage 1): set on the (empty) map of a heightfield whose edge data is worked out
+	// from its heights when a contact needs it (btNextFindTriangleInfo) instead of baked: the
+	// neighbours follow from the grid, so a full-size terrain needs no bake time and no memory.
+	const class btHeightfieldTerrainShape* m_bnHeightfield;
 
 	int bnKey(int partId, int triangleIndex) const
 	{
@@ -81,6 +85,7 @@ struct btTriangleInfoMap : public btInternalTriangleInfoMap
 	{
 		m_bnOwnedByShape = false;
 		m_bnHeightfieldKeys = false;
+		m_bnHeightfield = 0;
 		m_convexEpsilon = 0.00f;
 		m_planarEpsilon = 0.0001f;
 		m_equalVertexThreshold = btScalar(0.0001) * btScalar(0.0001);
