@@ -29,6 +29,10 @@
     "rally_slide",
     "rally_far",
     "rally_far_shift",
-    "rally_stage"
+    "rally_stage",
+    "rally_tilt",
+    "rally_body",
+    "rally_big",
+    "rally_crash"
   ]
 }

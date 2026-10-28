@@ -620,6 +620,7 @@ std::string sceneToJson(const SceneDesc& s) {
   if (s.settings.contactHertz >= 0) st["contact_hertz"] = jf(s.settings.contactHertz);
   if (s.settings.contactDampingRatio >= 0) st["contact_damping_ratio"] = jf(s.settings.contactDampingRatio);
   if (s.settings.contactPushSpeed >= 0) st["contact_push_speed"] = jf(s.settings.contactPushSpeed);
+  if (s.settings.reportImpulses) st["report_impulses"] = true;
   if (s.settings.erp >= 0) st["erp"] = jf(s.settings.erp);
   if (s.settings.erp2 >= 0) st["erp2"] = jf(s.settings.erp2);
   if (s.settings.cfm >= 0) st["cfm"] = jf(s.settings.cfm);
@@ -710,6 +711,7 @@ bool parseScene(const std::string& text, SceneDesc& s, std::string& error) {
       d.contactHertz = r.f(st, "contact_hertz", -1);
       d.contactDampingRatio = r.f(st, "contact_damping_ratio", -1);
       d.contactPushSpeed = r.f(st, "contact_push_speed", -1);
+      d.reportImpulses = r.b(st, "report_impulses", false);
       d.erp = r.f(st, "erp", -1); d.erp2 = r.f(st, "erp2", -1); d.cfm = r.f(st, "cfm", -1);
       d.features = r.i(st, "features", -1);
     }

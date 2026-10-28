@@ -1,6 +1,6 @@
 // Bullet NEXT Lab - runs scenes on several Lab engines inside one program (FL, CL.2).
 //   bnl_run [--engines legacy,nextf] [--scene NAME|all] [--scenes DIR] [--threads N] [--record DIR]
-//           [--replay-check 1] [--metrics FILE]
+//           [--replay-check 1] [--metrics FILE] [--track-every N]
 // --record DIR writes <scene>.<engine>.bnl recordings. --replay-check 1 (TL.6) plays every
 // engine's recording back and checks that each frame's states and hashes equal the live run.
 // The engines are stepped in turn, frame by frame, as the side-by-side viewer does. Prints each
@@ -10,7 +10,8 @@
 // total physics time.
 // --metrics FILE (F3c, C3.9) appends one JSON line per scene and engine: deepest penetration
 // (all frames, and after the first 2 s), fastest body after 2 s, joint drift, energy, solver
-// timings, each body's first bounce apex, and how far the bodies moved and tilted.
+// timings, each body's first bounce apex, and how far the bodies moved and tilted; each body's
+// track every N frames (--track-every, default 30), and with "report_impulses" the crash report.
 #include "bnl_engine.h"
 #include "bnl_recording.h"
 
@@ -23,6 +24,8 @@
 #include <sstream>
 
 namespace {
+
+int gTrackEvery = 30;   // --track-every N (Stage 1): frames between the track's samples
 
 // Measurements of one engine over one scene (C3.9).
 struct Metrics {
@@ -40,9 +43,12 @@ struct Metrics {
   std::vector<float> vDown;                     // fastest fall before the first bounce (impact speed)
   std::vector<bnl::BodyState> start;
   float upMax = 0;                          // Stage 0: fastest upward speed after 0.5 s (bumps)
+  bnl::Vec3 up = bnl::Vec3(0, 0, 1);        // Stage 1: "upward" is along the normal of a plane terrain
   std::vector<float> upBody;                // the same per body
   std::vector<int> upFrame;                 // and the frame it happened
   std::vector<std::vector<bnl::Vec3> > track;   // Stage 0: each solid body's position every 30 frames
+  bool hasImpulses = false;                     // Stage 1 crash report: impulses added up per body
+  std::vector<bnl::Vec3> impContact, impCcd;
 };
 
 bool solid(const bnl::BodyDesc& b) { return (b.kind == bnl::kRigid || b.kind == bnl::kDynamic) && !b.ghost; }
@@ -61,7 +67,19 @@ void beginMetrics(const bnl::SceneDesc& scene, const bnl::Engine& e, Metrics& m)
   m.track.assign(n, std::vector<bnl::Vec3>());
   m.upBody.assign(n, 0.0f);
   m.upFrame.assign(n, -1);
+  m.impContact.assign(n, bnl::Vec3());
+  m.impCcd.assign(n, bnl::Vec3());
   for (int b = 0; b < n; ++b) m.start[b] = e.body(b);
+  // Stage 1: on a tilted plane (rally_tilt, rally_big) a bump is speed away from the plane, so
+  // "upward" follows the plane's normal. Flat terrain keeps (0, 0, 1) and the Stage 0 numbers.
+  for (const bnl::BodyDesc& b : scene.bodies) {
+    const bnl::Quat& q = b.xform.q;
+    if (b.shape.type != bnl::ShapeDesc::kHeightfield || b.shape.terrain.kind != "plane" || q.x != 0 || q.y != 0 || q.z != 0) continue;
+    const float sx = b.shape.terrain.slopeX, sy = b.shape.terrain.slopeY;
+    if (sx == 0 && sy == 0) continue;
+    const float len = std::sqrt(sx * sx + sy * sy + 1.0f);
+    m.up = bnl::Vec3(-sx / len, -sy / len, 1.0f / len);
+  }
   double en = 0;
   m.hasEnergy = e.energy(en);
   m.e0 = en;
@@ -86,10 +104,11 @@ void frameMetrics(const bnl::SceneDesc& scene, const bnl::Engine& e, int frame, 
     const float speed = std::sqrt(s.lin.x * s.lin.x + s.lin.y * s.lin.y + s.lin.z * s.lin.z);
     if (rest) m.jitter = std::max(m.jitter, speed);
     if (frame > int(0.5f * scene.settings.ticrate + 0.5f)) {
-      m.upMax = std::max(m.upMax, s.lin.z);
-      if (s.lin.z > m.upBody[b]) { m.upBody[b] = s.lin.z; m.upFrame[b] = frame; }
+      const float vUp = (m.up.x == 0 && m.up.y == 0) ? s.lin.z : s.lin.x * m.up.x + s.lin.y * m.up.y + s.lin.z * m.up.z;
+      m.upMax = std::max(m.upMax, vUp);
+      if (vUp > m.upBody[b]) { m.upBody[b] = vUp; m.upFrame[b] = frame; }
     }
-    if (frame % 30 == 0) m.track[b].push_back(s.p);
+    if (frame % gTrackEvery == 0) m.track[b].push_back(s.p);
     if (m.phase[b] == 1) { m.zLow[b] = s.p.z; m.vDown[b] = std::min(m.vDown[b], s.lin.z); }
     int& ph = m.phase[b];
     if (ph == 0 && s.lin.z < -0.1f) ph = 1;
@@ -106,6 +125,17 @@ void frameMetrics(const bnl::SceneDesc& scene, const bnl::Engine& e, int frame, 
   }
   double en = 0;
   if (e.energy(en)) { m.eMax = std::max(m.eMax, en); m.eMin = std::min(m.eMin, en); m.eEnd = en; }
+  std::vector<bnl::BodyImpulse> imp;
+  if (e.impulses(imp)) {
+    m.hasImpulses = true;
+    for (const bnl::BodyImpulse& i : imp) {
+      if (i.body < 0 || i.body >= (int)m.impContact.size()) continue;
+      bnl::Vec3& c = m.impContact[i.body];
+      bnl::Vec3& d = m.impCcd[i.body];
+      c = bnl::Vec3(c.x + i.contact.x, c.y + i.contact.y, c.z + i.contact.z);
+      d = bnl::Vec3(d.x + i.ccd.x, d.y + i.ccd.y, d.z + i.ccd.z);
+    }
+  }
 }
 
 std::string num(double v) {
@@ -168,6 +198,31 @@ std::string metricsJson(const bnl::SceneDesc& scene, const bnl::Engine& e, doubl
     first = false;
   }
   o << "]";
+  if (m.hasImpulses) {
+    // Stage 1 crash report: each moving body's change of momentum against the impulses reported
+    // for it (contacts, continuous collision), and the largest mismatch relative to the change.
+    o << ", \"impulses\": [";
+    first = true;
+    double errMax = 0;
+    for (int b = 0; b < e.bodyCount() && b < (int)scene.bodies.size(); ++b) {
+      if (!solid(scene.bodies[b])) continue;
+      const bnl::BodyState s = e.body(b), s0 = m.start[b];
+      const double mass = scene.bodies[b].mass;
+      const double dp[3] = {mass * (s.lin.x - s0.lin.x), mass * (s.lin.y - s0.lin.y), mass * (s.lin.z - s0.lin.z)};
+      const bnl::Vec3& c = m.impContact[b];
+      const bnl::Vec3& d = m.impCcd[b];
+      const double sum[3] = {(double)c.x + d.x, (double)c.y + d.y, (double)c.z + d.z};
+      const double dpLen = std::sqrt(dp[0] * dp[0] + dp[1] * dp[1] + dp[2] * dp[2]);
+      const double miss = std::sqrt((dp[0] - sum[0]) * (dp[0] - sum[0]) + (dp[1] - sum[1]) * (dp[1] - sum[1]) + (dp[2] - sum[2]) * (dp[2] - sum[2]));
+      const double err = dpLen > 1e-6 ? miss / dpLen : 0.0;
+      errMax = std::max(errMax, err);
+      o << (first ? "" : ", ") << "{\"body\": " << b << ", \"dp\": [" << num(dp[0]) << ", " << num(dp[1]) << ", " << num(dp[2])
+        << "], \"contact\": [" << num(c.x) << ", " << num(c.y) << ", " << num(c.z) << "], \"ccd\": [" << num(d.x) << ", "
+        << num(d.y) << ", " << num(d.z) << "], \"error\": " << num(err) << "}";
+      first = false;
+    }
+    o << "], \"impulse_error_max\": " << num(errMax);
+  }
   bnl::SolverStats st;
   if (e.solverStats(st))
     o << ", \"solver\": {\"prepare_ms\": " << num(st.prepareMicros / 1000) << ", \"substeps_ms\": " << num(st.substepMicros / 1000)
@@ -194,6 +249,7 @@ int main(int argc, char** argv) {
     if (!std::strcmp(argv[i], "--record")) recordDir = argv[i + 1];
     if (!std::strcmp(argv[i], "--replay-check")) replayCheck = std::atoi(argv[i + 1]) != 0;
     if (!std::strcmp(argv[i], "--metrics")) metricsPath = argv[i + 1];
+    if (!std::strcmp(argv[i], "--track-every")) gTrackEvery = std::max(1, std::atoi(argv[i + 1]));
     if (!std::strcmp(argv[i], "--dump-contacts")) dumpFrame = std::atoi(argv[i + 1]);
     if (!std::strcmp(argv[i], "--engines")) engines = argv[i + 1];
     else if (!std::strcmp(argv[i], "--scene")) which = argv[i + 1];

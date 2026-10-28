@@ -208,6 +208,9 @@ struct SettingsDesc {
   float jointWarmStart = -1, jointHertz = -1, jointDampingRatio = -1;
   float substepRate = -1;
   float contactHertz = -1, contactDampingRatio = -1, contactPushSpeed = -1;
+  // Stage 1 crash report: the engine adds up each body's contact and CCD impulses every frame
+  // ("report_impulses"); off by default, as it costs a pass over the contacts.
+  bool reportImpulses = false;
 };
 
 struct SceneDesc {

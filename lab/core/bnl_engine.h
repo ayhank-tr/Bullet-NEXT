@@ -27,6 +27,13 @@ struct Contact {
   float dist = 0;       // negative when penetrating
 };
 
+// Stage 1 crash report: what one body received in the last frame (world space).
+struct BodyImpulse {
+  int body = -1;
+  Vec3 contact;   // contact impulses (normal and friction)
+  Vec3 ccd;       // momentum removed by continuous collision at the time of impact
+};
+
 struct RayHit {
   int body = -1;
   Vec3 p, n;
@@ -100,6 +107,8 @@ class Engine {
   virtual void jointErrors(std::vector<JointError>& out) const { out.clear(); }
   // Kinetic plus potential energy of the moving rigid bodies (J), gravity along Z.
   virtual bool energy(double& out) const { out = 0; return false; }
+  // Stage 1 crash report (scene setting "report_impulses"): false if the engine cannot report.
+  virtual bool impulses(std::vector<BodyImpulse>& out) const { out.clear(); return false; }
 };
 
 // Random collision pairs (TL.7, harness/src/bn_fuzz.cpp): Bullet engines only.

@@ -44,6 +44,7 @@ struct Settings {
   float substepRate = -1;
   float contactHertz = -1, contactDampingRatio = -1, contactPushSpeed = -1;
   int profile = kBge279;
+  bool reportImpulses = false;      // Stage 1: per-body contact and CCD impulses each frame (crash report)
   bool splitImpulse = false;        // Blender rigid body world settings
   float timeScale = 1.0f;
 };
@@ -150,6 +151,10 @@ class World {
 
   bool collides(int a, int b) const;  // KX_GameObject::CheckCollision (user groups)
   void tick(btScalar dt);             // per-substep velocity clamping
+  // Stage 1 crash report (settings.reportImpulses): the impulses each body received in the last
+  // frame, from contacts and from continuous collision. Empty when not collected.
+  const std::vector<btVector3>& contactImpulses() const { return m_impContact; }
+  const std::vector<btVector3>& ccdImpulses() const { return m_impCcd; }
   void applyGlobals();
   bool featureOn(int bit) const;    // Bullet NEXT feature switch (scene file, else BN_FEATURES)
 #if BN_NEXT_LIB
@@ -188,6 +193,8 @@ class World {
   btRigidBody* m_fixed = nullptr;
   bool m_linkedCollision = false, m_meshReduction = false;  // Bullet NEXT globals, set per step
   std::vector<BodyRec> m_bodies;
+  std::vector<btVector3> m_impContact, m_impCcd;   // Stage 1 crash report (see contactImpulses)
+  void collectImpulses();
   std::vector<btTypedConstraint*> m_constraints;
   std::vector<btRaycastVehicle*> m_vehicles;
   std::vector<btVehicleRaycaster*> m_raycasters;

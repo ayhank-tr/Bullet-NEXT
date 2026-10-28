@@ -129,6 +129,25 @@ class EngineImpl : public bnl::Engine {
     }
   }
 
+  bool impulses(std::vector<bnl::BodyImpulse>& out) const {
+    out.clear();
+#if BN_NEXT_LIB
+    const std::vector<btVector3>& c = m_world->contactImpulses();
+    const std::vector<btVector3>& d = m_world->ccdImpulses();
+    if (c.empty()) return false;
+    for (size_t i = 0; i < c.size(); ++i) {
+      bnl::BodyImpulse b;
+      b.body = (int)i;
+      b.contact = fromBt(c[i]);
+      b.ccd = fromBt(d[i]);
+      out.push_back(b);
+    }
+    return true;
+#else
+    return false;
+#endif
+  }
+
   bnl::u64 frameHash() const { return m_frameHash; }
   bnl::u64 finalHash() const { return m_final; }
 

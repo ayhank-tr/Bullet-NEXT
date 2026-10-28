@@ -35,6 +35,7 @@ Settings settingsOf(const bnl::SettingsDesc& d) {
   s.jointHertz = d.jointHertz; s.jointDampingRatio = d.jointDampingRatio;
   s.contactHertz = d.contactHertz; s.contactDampingRatio = d.contactDampingRatio; s.contactPushSpeed = d.contactPushSpeed;
   s.splitImpulse = d.splitImpulse;
+  s.reportImpulses = d.reportImpulses;
   s.timeScale = d.timeScale;
   return s;
 }

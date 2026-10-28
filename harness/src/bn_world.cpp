@@ -313,6 +313,31 @@ void World::tick(btScalar) {
       else if (o.clampAngMin > 0.0f && !btFuzzyZero(len) && len < o.clampAngMin) body->setAngularVelocity(w * (o.clampAngMin / len));
     }
   }
+  if (m_settings.reportImpulses) collectImpulses();
+}
+
+// Stage 1 crash report: every impulse of this internal step, added up per body for the frame.
+void World::collectImpulses() {
+  m_impContact.resize(m_bodies.size(), btVector3(0, 0, 0));
+  m_impCcd.resize(m_bodies.size(), btVector3(0, 0, 0));
+#if BN_NEXT_LIB
+  btDispatcher* d = m_world->getDispatcher();
+  for (int i = 0; i < d->getNumManifolds(); ++i) {
+    btPersistentManifold* m = d->getManifoldByIndexInternal(i);
+    const int a = static_cast<const btCollisionObject*>(m->getBody0())->getUserIndex();
+    const int b = static_cast<const btCollisionObject*>(m->getBody1())->getUserIndex();
+    for (int k = 0; k < m->getNumContacts(); ++k) {
+      const btVector3 j = btNextContactImpulse(m, k);
+      if (a >= 0 && a < (int)m_impContact.size()) m_impContact[a] += j;
+      if (b >= 0 && b < (int)m_impContact.size()) m_impContact[b] -= j;
+    }
+  }
+  const btAlignedObjectArray<btDiscreteDynamicsWorld::BnCcdHit>& hits = btNextCcdHits(m_world);
+  for (int i = 0; i < hits.size(); ++i) {
+    const int a = hits[i].body->getUserIndex();
+    if (a >= 0 && a < (int)m_impCcd.size()) m_impCcd[a] += hits[i].impulse;
+  }
+#endif
 }
 
 int World::add(const BodyOpts& o) {
@@ -597,6 +622,10 @@ void World::step() {
   const float timeStep = (float)(1.0 / (double)m_settings.ticrate);
   const float interval = timeStep;
   const float subStep = timeStep / float(m_settings.substeps);
+  if (m_settings.reportImpulses) {
+    m_impContact.assign(m_bodies.size(), btVector3(0, 0, 0));
+    m_impCcd.assign(m_bodies.size(), btVector3(0, 0, 0));
+  }
   m_world->stepSimulation(interval, 25, subStep);
   for (size_t v = 0; v < m_vehicles.size(); ++v)
     for (int w = 0; w < m_vehicles[v]->getNumWheels(); ++w)
