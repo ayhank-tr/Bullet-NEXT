@@ -24,6 +24,7 @@ PORTED = [
     "BulletCollision/CollisionDispatch/btManifoldResult.h",
     "BulletCollision/CollisionDispatch/btManifoldResult.cpp",
     "BulletCollision/CollisionShapes/btConvexPolyhedron.cpp",
+    "BulletCollision/NarrowPhaseCollision/btPolyhedralContactClipping.cpp",  # Stage 1
 ]
 
 
@@ -89,6 +90,18 @@ def main():
          "\t\t\tif (solidA && solidB)\n")
     edit(cc, "dispatchInfo.m_enableSatConvex && polyhedronA->getConvexPolyhedron() && polyhedronB->getShapeType() == TRIANGLE_SHAPE_PROXYTYPE",
          "dispatchInfo.m_enableSatConvex && solidA && polyhedronB->getShapeType() == TRIANGLE_SHAPE_PROXYTYPE")
+    # Stage 1: an in-plane SAT axis against a triangle takes the GJK path (see next/'s
+    # btConvexConvexAlgorithm.cpp), copied from next/ and renamed
+    nxcc = open(os.path.join(NX, "BulletCollision", "CollisionDispatch", "btConvexConvexAlgorithm.cpp")).read()
+    a = nxcc.index("\t\t\t\t\t// Bullet NEXT (Stage 1): an axis in the triangle's plane")
+    b = nxcc.index("\t\t\t\t\t\treturn;\n\t\t\t\t\t}\n\t\t\t\t}", a) + len("\t\t\t\t\t\treturn;\n\t\t\t\t\t}\n")
+    text = open(cc).read()
+    start = "\t\t\t\t\tif (foundSepAxis)\n\t\t\t\t\t{\n\t\t\t\t\t\tworldVertsB2.resize(0);\n"
+    if text.count(start) != 1:
+        sys.exit(f"{cc}: anchor not found once: {start[:60]!r}")
+    i = text.index(start)
+    j = text.index("\t\t\t\t\treturn;\n", i) + len("\t\t\t\t\treturn;\n")
+    open(cc, "w").write(text[:i] + ren(nxcc[a:b]) + text[j:])
     tm = os.path.join(base, "BulletCollision", "CollisionShapes", "cbtTriangleInfoMap.h")
     edit(tm, "\tcbtTriangleInfoMap()\n\t{\n",
          "\t// Bullet NEXT (FL): made by cbtNextEnableActiveEdges for its mesh, which then deletes it.\n"

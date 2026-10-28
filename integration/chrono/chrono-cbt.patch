@@ -19,10 +19,10 @@ index 491e469..1aecf19 100644
  source_group("collision\\bullet" FILES ${Chrono_collision_bullet_SOURCES} ${Chrono_collision_bullet_HEADERS})
  
 diff --git a/src/chrono/collision/bullet/BulletCollision/CollisionDispatch/cbtConvexConcaveCollisionAlgorithm.cpp b/src/chrono/collision/bullet/BulletCollision/CollisionDispatch/cbtConvexConcaveCollisionAlgorithm.cpp
-index 067ef86..8770329 100644
+index 067ef86..62434d3 100644
 --- a/src/chrono/collision/bullet/BulletCollision/CollisionDispatch/cbtConvexConcaveCollisionAlgorithm.cpp
 +++ b/src/chrono/collision/bullet/BulletCollision/CollisionDispatch/cbtConvexConcaveCollisionAlgorithm.cpp
-@@ -28,6 +28,86 @@ subject to the following restrictions:
+@@ -28,6 +28,111 @@ subject to the following restrictions:
  #include "BulletCollision/CollisionDispatch/cbtCollisionObjectWrapper.h"
  #include "BulletCollision/CollisionShapes/cbtSdfCollisionShape.h"
  
@@ -39,11 +39,36 @@ index 067ef86..8770329 100644
 +	return (b - a).cross(c - a).length2();
 +}
 +
++// Stage 1: the points in an order of their own (deepest first, then by position and normal), not in the
++// order the shape lists its triangles. A heightfield and a mesh of the same ground list them
++// differently; the solver works through the points in turn, so the same contacts gave a car body
++// sliding on the same terrain paths 9-17 cm apart after 10 s.
++struct BnPointOrder
++{
++	bool operator()(const cbtManifoldPoint& a, const cbtManifoldPoint& b) const
++	{
++		if (a.m_distance1 != b.m_distance1) return a.m_distance1 < b.m_distance1;
++		const cbtVector3& p = a.m_positionWorldOnB;
++		const cbtVector3& q = b.m_positionWorldOnB;
++		if (p.x() != q.x()) return p.x() < q.x();
++		if (p.y() != q.y()) return p.y() < q.y();
++		if (p.z() != q.z()) return p.z() < q.z();
++		// a point on an edge shared by two triangles comes once from each, with each one's normal
++		const cbtVector3& m = a.m_normalWorldOnB;
++		const cbtVector3& k = b.m_normalWorldOnB;
++		if (m.x() != k.x()) return m.x() < k.x();
++		if (m.y() != k.y()) return m.y() < k.y();
++		return m.z() < k.z();
++	}
++};
++
 +static void bnInsertReduced(cbtAlignedObjectArray<cbtManifoldPoint>& pts, cbtPersistentManifold* manifold)
 +{
 +	const int n = pts.size();
 +	if (n == 0)
 +		return;
++	if (n > 1)
++		pts.quickSort(BnPointOrder());
 +	int chosen[4] = {-1, -1, -1, -1};
 +	int count = 0;
 +	if (n <= 4)
@@ -109,7 +134,7 @@ index 067ef86..8770329 100644
  cbtConvexConcaveCollisionAlgorithm::cbtConvexConcaveCollisionAlgorithm(const cbtCollisionAlgorithmConstructionInfo& ci, const cbtCollisionObjectWrapper* body0Wrap, const cbtCollisionObjectWrapper* body1Wrap, bool isSwapped)
  	: cbtActivatingCollisionAlgorithm(ci, body0Wrap, body1Wrap),
  	  m_cbtConvexTriangleCallback(ci.m_dispatcher1, body0Wrap, body1Wrap, isSwapped),
-@@ -163,7 +243,9 @@ void cbtConvexTriangleCallback::setTimeStepAndCounters(cbtScalar collisionMargin
+@@ -163,7 +268,9 @@ void cbtConvexTriangleCallback::setTimeStepAndCounters(cbtScalar collisionMargin
  	const cbtCollisionShape* convexShape = static_cast<const cbtCollisionShape*>(m_convexBodyWrap->getCollisionShape());
  	//CollisionShape* triangleShape = static_cast<cbtCollisionShape*>(triBody->m_collisionShape);
  	convexShape->getAabb(convexInTriangleSpace, m_aabbMin, m_aabbMax);
@@ -120,7 +145,7 @@ index 067ef86..8770329 100644
  
  	cbtVector3 extra(extraMargin, extraMargin, extraMargin);
  
-@@ -259,8 +341,18 @@ void cbtConvexConcaveCollisionAlgorithm::processCollision(const cbtCollisionObje
+@@ -259,8 +366,18 @@ void cbtConvexConcaveCollisionAlgorithm::processCollision(const cbtCollisionObje
  
  				m_cbtConvexTriangleCallback.m_manifoldPtr->setBodies(convexBodyWrap->getCollisionObject(), triBodyWrap->getCollisionObject());
  
@@ -154,7 +179,7 @@ index 9b24219..d87db62 100644
  #include "cbtCollisionCreateFunc.h"
  
 diff --git a/src/chrono/collision/bullet/BulletCollision/CollisionDispatch/cbtConvexConvexAlgorithm.cpp b/src/chrono/collision/bullet/BulletCollision/CollisionDispatch/cbtConvexConvexAlgorithm.cpp
-index 55a4d58..b3cfd97 100644
+index 55a4d58..36b15d0 100644
 --- a/src/chrono/collision/bullet/BulletCollision/CollisionDispatch/cbtConvexConvexAlgorithm.cpp
 +++ b/src/chrono/collision/bullet/BulletCollision/CollisionDispatch/cbtConvexConvexAlgorithm.cpp
 @@ -483,7 +483,11 @@ void cbtConvexConvexAlgorithm ::processCollision(const cbtCollisionObjectWrapper
@@ -179,6 +204,52 @@ index 55a4d58..b3cfd97 100644
  				{
  					cbtVertexArray worldSpaceVertices;
  					cbtTriangleShape* tri = (cbtTriangleShape*)polyhedronB;
+@@ -684,19 +688,37 @@ void cbtConvexConvexAlgorithm ::processCollision(const cbtCollisionObjectWrapper
+ #endif
+ 					}
+ 
++					// Bullet NEXT (Stage 1): an axis in the triangle's plane (the hull overlaps the
++					// triangle's side by less than it sinks into its face) clips the triangle against a
++					// side face of the hull: the points came out up to 3.4 m deep, with the normal
++					// along the ground (a car body sliding on terrain was thrown). Such a pair takes
++					// the GJK path below, whose normal the active-edge correction then sets right.
++					bool bnInPlaneAxis = false;
+ 					if (foundSepAxis)
+ 					{
+-						worldVertsB2.resize(0);
+-						cbtPolyhedralContactClipping::clipFaceAgainstHull(sepNormalWorldSpace, *polyhedronA->getConvexPolyhedron(),
+-																		 body0Wrap->getWorldTransform(), worldSpaceVertices, worldVertsB2, minDist - threshold, maxDist, *resultOut);
++						cbtVector3 faceNormal = (tri->m_vertices1[1] - tri->m_vertices1[0]).cross(tri->m_vertices1[2] - tri->m_vertices1[0]);
++						if (faceNormal.length2() > SIMD_EPSILON)
++						{
++							faceNormal = body1Wrap->getWorldTransform().getBasis() * faceNormal.normalized();
++							bnInPlaneAxis = cbtFabs(faceNormal.dot(sepNormalWorldSpace)) < cbtScalar(0.7);
++						}
+ 					}
+-
+-					if (m_ownManifold)
++					if (!bnInPlaneAxis)
+ 					{
+-						resultOut->refreshContactPoints();
+-					}
++						if (foundSepAxis)
++						{
++							worldVertsB2.resize(0);
++							cbtPolyhedralContactClipping::clipFaceAgainstHull(sepNormalWorldSpace, *polyhedronA->getConvexPolyhedron(),
++																			 body0Wrap->getWorldTransform(), worldSpaceVertices, worldVertsB2, minDist - threshold, maxDist, *resultOut);
++						}
+ 
+-					return;
++						if (m_ownManifold)
++						{
++							resultOut->refreshContactPoints();
++						}
++
++						return;
++					}
+ 				}
+ 			}
+ 		}
 diff --git a/src/chrono/collision/bullet/BulletCollision/CollisionDispatch/cbtInternalEdgeUtility.cpp b/src/chrono/collision/bullet/BulletCollision/CollisionDispatch/cbtInternalEdgeUtility.cpp
 index f09f47f..bf1e8d7 100644
 --- a/src/chrono/collision/bullet/BulletCollision/CollisionDispatch/cbtInternalEdgeUtility.cpp
@@ -292,10 +363,27 @@ index db807c4..507dbb6 100644
  	{
  		m_bvh->~cbtOptimizedBvh();
 diff --git a/src/chrono/collision/bullet/BulletCollision/CollisionShapes/cbtConvexPolyhedron.cpp b/src/chrono/collision/bullet/BulletCollision/CollisionShapes/cbtConvexPolyhedron.cpp
-index e33d211..f90a020 100644
+index e33d211..f3f8b2e 100644
 --- a/src/chrono/collision/bullet/BulletCollision/CollisionShapes/cbtConvexPolyhedron.cpp
 +++ b/src/chrono/collision/bullet/BulletCollision/CollisionShapes/cbtConvexPolyhedron.cpp
-@@ -256,7 +256,9 @@ void cbtConvexPolyhedron::initialize2()
+@@ -235,6 +235,16 @@ void cbtConvexPolyhedron::initialize2()
+ 		m_extents[0] = m_extents[1] = m_extents[2] = r;
+ 		m_extents[LargestExtent] = mE[LargestExtent] * 0.5f;
+ 		bool FoundBox = false;
++		// Bullet NEXT (Stage 1): a flat polyhedron (radius 0: the per-triangle one built for SAT
++		// against meshes and heightfields) has no inside; its internal box is a point. Searching for
++		// one took up to 1,024 containment tests per triangle on sloped ground, a third of a car
++		// body's collision time. The box only lets SAT skip axes, so a smaller one never changes
++		// the result.
++		if (m_radius == cbtScalar(0))
++		{
++			m_extents[0] = m_extents[1] = m_extents[2] = cbtScalar(0);
++			return;
++		}
+ 		for (int j = 0; j < 1024; j++)
+ 		{
+ 			if (testContainment())
+@@ -256,7 +266,9 @@ void cbtConvexPolyhedron::initialize2()
  			const int e0 = (1 << LargestExtent) & 3;
  			const int e1 = (1 << e0) & 3;
  
@@ -323,6 +411,36 @@ index 81418fa..4f35881 100644
  		m_convexEpsilon = 0.00f;
  		m_planarEpsilon = 0.0001f;
  		m_equalVertexThreshold = cbtScalar(0.0001) * cbtScalar(0.0001);
+diff --git a/src/chrono/collision/bullet/BulletCollision/NarrowPhaseCollision/cbtPolyhedralContactClipping.cpp b/src/chrono/collision/bullet/BulletCollision/NarrowPhaseCollision/cbtPolyhedralContactClipping.cpp
+index 69088e3..2a0358d 100644
+--- a/src/chrono/collision/bullet/BulletCollision/NarrowPhaseCollision/cbtPolyhedralContactClipping.cpp
++++ b/src/chrono/collision/bullet/BulletCollision/NarrowPhaseCollision/cbtPolyhedralContactClipping.cpp
+@@ -324,7 +324,11 @@ bool cbtPolyhedralContactClipping::findSeparatingAxis(const cbtConvexPolyhedron&
+ 
+ 			cbtVector3 Cross = WorldEdge0.cross(WorldEdge1);
+ 			curEdgeEdge++;
+-			if (!IsAlmostZero(Cross))
++			// Bullet NEXT (Stage 1): edges within 0.06 degrees of parallel give no usable axis (its
++			// direction is rounding noise, and the face axes cover that case). Upstream only skipped
++			// exact parallels; a car hull's edges along a heightfield's grid lines then produced
++			// contacts metres deep, far from the field's centre.
++			if (!IsAlmostZero(Cross) && Cross.length2() > cbtScalar(1e-6))
+ 			{
+ 				Cross = Cross.normalize();
+ 				if (DeltaC2.dot(Cross) < 0)
+@@ -392,7 +396,11 @@ bool cbtPolyhedralContactClipping::findSeparatingAxis(const cbtConvexPolyhedron&
+ 			}
+ 			cbtVector3 ptOnB = witnessPointB + offsetB;
+ 			cbtScalar distance = nl;
+-			resultOut.addContactPoint(ptsVector, ptOnB, -distance);
++			// Bullet NEXT (Stage 1): the closest points of the two edge lines can only be as far
++			// apart as the overlap found along their axis; farther means the lines met far outside
++			// the edges (nearly parallel), so no point is added.
++			if (distance <= dmin + cbtScalar(0.01) + cbtScalar(0.5) * dmin)
++				resultOut.addContactPoint(ptsVector, ptOnB, -distance);
+ 		}
+ 	}
+ 
 diff --git a/src/chrono/collision/bullet/ChCollisionSystemBullet.cpp b/src/chrono/collision/bullet/ChCollisionSystemBullet.cpp
 index 1999b28..41b1703 100644
 --- a/src/chrono/collision/bullet/ChCollisionSystemBullet.cpp
@@ -389,10 +507,10 @@ index d20ecba..bcd0ad0 100644
      virtual void Run() override;
 diff --git a/src/chrono/collision/bullet/cbtNextCollision.cpp b/src/chrono/collision/bullet/cbtNextCollision.cpp
 new file mode 100644
-index 0000000..401840e
+index 0000000..4071632
 --- /dev/null
 +++ b/src/chrono/collision/bullet/cbtNextCollision.cpp
-@@ -0,0 +1,232 @@
+@@ -0,0 +1,234 @@
 +/*
 +Bullet NEXT collision features for Chrono's Bullet copy (F1, T1.7).
 +Copyright (c) 2026 BGE NEXT contributors. Same zlib terms as Bullet.
@@ -405,6 +523,7 @@ index 0000000..401840e
 +#include "cbtNextCollision.h"
 +
 +#include "BulletCollision/CollisionDispatch/cbtCollisionWorld.h"
++#include "BulletCollision/NarrowPhaseCollision/cbtPersistentManifold.h"
 +#include "BulletCollision/CollisionDispatch/cbtInternalEdgeUtility.h"
 +#include "BulletCollision/CollisionDispatch/cbtCollisionObjectWrapper.h"
 +#include "BulletCollision/CollisionDispatch/cbtManifoldResult.h"
@@ -485,14 +604,13 @@ index 0000000..401840e
 +	cbtTriangleInfoMap* map = meshInfoMap(triWrap);
 +	if (!map)
 +		return;
-+	const int hash = (partId << (31 - MAX_NUM_PARTS_IN_BITS)) | index;
-+	const cbtTriangleInfo* info = map->find(hash);
++	const cbtTriangleShape* tri = static_cast<const cbtTriangleShape*>(triWrap->getCollisionShape());
++	const cbtTriangleInfo* info = map->find((partId << (31 - MAX_NUM_PARTS_IN_BITS)) | index);
 +	if (!info)
 +		return;
 +	const cbtScalar flat = cbtScalar(0.0873);  // 5 degrees
 +	if (cbtFabs(info->m_edgeV0V1Angle) > flat || cbtFabs(info->m_edgeV1V2Angle) > flat || cbtFabs(info->m_edgeV2V0Angle) > flat)
 +		return;
-+	const cbtTriangleShape* tri = static_cast<const cbtTriangleShape*>(triWrap->getCollisionShape());
 +	cbtVector3 n;
 +	tri->calcNormal(n);
 +	n = triWrap->getWorldTransform().getBasis() * n;
@@ -593,9 +711,11 @@ index 0000000..401840e
 +		cbtHeightfieldTerrainShape* hf = static_cast<cbtHeightfieldTerrainShape*>(shape);
 +		if (!hf->getTriangleInfoMap())
 +		{
++			// Stage 1: no bake. The map stays empty and each contact works out its triangle's edge
++			// data from the heights around it (a 3 km field at 1 m took 25.6 s and 1 GB to bake).
 +			cbtTriangleInfoMap* map = new cbtTriangleInfoMap();
 +			map->m_bnOwnedByShape = true;  // the heightfield shape deletes it
-+			cbtGenerateInternalEdgeInfo(hf, map);
++			cbtNextUseComputedEdgeInfo(hf, map);
 +		}
 +		return 1;
 +	}

@@ -324,7 +324,11 @@ bool btPolyhedralContactClipping::findSeparatingAxis(const btConvexPolyhedron& h
 
 			btVector3 Cross = WorldEdge0.cross(WorldEdge1);
 			curEdgeEdge++;
-			if (!IsAlmostZero(Cross))
+			// Bullet NEXT (Stage 1): edges within 0.06 degrees of parallel give no usable axis (its
+			// direction is rounding noise, and the face axes cover that case). Upstream only skipped
+			// exact parallels; a car hull's edges along a heightfield's grid lines then produced
+			// contacts metres deep, far from the field's centre.
+			if (!IsAlmostZero(Cross) && Cross.length2() > btScalar(1e-6))
 			{
 				Cross = Cross.normalize();
 				if (DeltaC2.dot(Cross) < 0)
@@ -392,7 +396,11 @@ bool btPolyhedralContactClipping::findSeparatingAxis(const btConvexPolyhedron& h
 			}
 			btVector3 ptOnB = witnessPointB + offsetB;
 			btScalar distance = nl;
-			resultOut.addContactPoint(ptsVector, ptOnB, -distance);
+			// Bullet NEXT (Stage 1): the closest points of the two edge lines can only be as far
+			// apart as the overlap found along their axis; farther means the lines met far outside
+			// the edges (nearly parallel), so no point is added.
+			if (distance <= dmin + btScalar(0.01) + btScalar(0.5) * dmin)
+				resultOut.addContactPoint(ptsVector, ptOnB, -distance);
 		}
 	}
 

@@ -684,19 +684,37 @@ void btConvexConvexAlgorithm ::processCollision(const btCollisionObjectWrapper* 
 #endif
 					}
 
+					// Bullet NEXT (Stage 1): an axis in the triangle's plane (the hull overlaps the
+					// triangle's side by less than it sinks into its face) clips the triangle against a
+					// side face of the hull: the points came out up to 3.4 m deep, with the normal
+					// along the ground (a car body sliding on terrain was thrown). Such a pair takes
+					// the GJK path below, whose normal the active-edge correction then sets right.
+					bool bnInPlaneAxis = false;
 					if (foundSepAxis)
 					{
-						worldVertsB2.resize(0);
-						btPolyhedralContactClipping::clipFaceAgainstHull(sepNormalWorldSpace, *polyhedronA->getConvexPolyhedron(),
-																		 body0Wrap->getWorldTransform(), worldSpaceVertices, worldVertsB2, minDist - threshold, maxDist, *resultOut);
+						btVector3 faceNormal = (tri->m_vertices1[1] - tri->m_vertices1[0]).cross(tri->m_vertices1[2] - tri->m_vertices1[0]);
+						if (faceNormal.length2() > SIMD_EPSILON)
+						{
+							faceNormal = body1Wrap->getWorldTransform().getBasis() * faceNormal.normalized();
+							bnInPlaneAxis = btFabs(faceNormal.dot(sepNormalWorldSpace)) < btScalar(0.7);
+						}
 					}
-
-					if (m_ownManifold)
+					if (!bnInPlaneAxis)
 					{
-						resultOut->refreshContactPoints();
-					}
+						if (foundSepAxis)
+						{
+							worldVertsB2.resize(0);
+							btPolyhedralContactClipping::clipFaceAgainstHull(sepNormalWorldSpace, *polyhedronA->getConvexPolyhedron(),
+																			 body0Wrap->getWorldTransform(), worldSpaceVertices, worldVertsB2, minDist - threshold, maxDist, *resultOut);
+						}
 
-					return;
+						if (m_ownManifold)
+						{
+							resultOut->refreshContactPoints();
+						}
+
+						return;
+					}
 				}
 			}
 		}

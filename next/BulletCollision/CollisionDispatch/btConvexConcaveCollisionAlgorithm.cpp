@@ -41,11 +41,36 @@ static btScalar bnTriArea2(const btVector3& a, const btVector3& b, const btVecto
 	return (b - a).cross(c - a).length2();
 }
 
+// Stage 1: the points in an order of their own (deepest first, then by position and normal), not in the
+// order the shape lists its triangles. A heightfield and a mesh of the same ground list them
+// differently; the solver works through the points in turn, so the same contacts gave a car body
+// sliding on the same terrain paths 9-17 cm apart after 10 s.
+struct BnPointOrder
+{
+	bool operator()(const btManifoldPoint& a, const btManifoldPoint& b) const
+	{
+		if (a.m_distance1 != b.m_distance1) return a.m_distance1 < b.m_distance1;
+		const btVector3& p = a.m_positionWorldOnB;
+		const btVector3& q = b.m_positionWorldOnB;
+		if (p.x() != q.x()) return p.x() < q.x();
+		if (p.y() != q.y()) return p.y() < q.y();
+		if (p.z() != q.z()) return p.z() < q.z();
+		// a point on an edge shared by two triangles comes once from each, with each one's normal
+		const btVector3& m = a.m_normalWorldOnB;
+		const btVector3& k = b.m_normalWorldOnB;
+		if (m.x() != k.x()) return m.x() < k.x();
+		if (m.y() != k.y()) return m.y() < k.y();
+		return m.z() < k.z();
+	}
+};
+
 static void bnInsertReduced(btAlignedObjectArray<btManifoldPoint>& pts, btPersistentManifold* manifold)
 {
 	const int n = pts.size();
 	if (n == 0)
 		return;
+	if (n > 1)
+		pts.quickSort(BnPointOrder());
 	int chosen[4] = {-1, -1, -1, -1};
 	int count = 0;
 	if (n <= 4)

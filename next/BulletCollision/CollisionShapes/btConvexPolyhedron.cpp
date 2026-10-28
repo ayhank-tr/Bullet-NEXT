@@ -235,6 +235,16 @@ void btConvexPolyhedron::initialize2()
 		m_extents[0] = m_extents[1] = m_extents[2] = r;
 		m_extents[LargestExtent] = mE[LargestExtent] * 0.5f;
 		bool FoundBox = false;
+		// Bullet NEXT (Stage 1): a flat polyhedron (radius 0: the per-triangle one built for SAT
+		// against meshes and heightfields) has no inside; its internal box is a point. Searching for
+		// one took up to 1,024 containment tests per triangle on sloped ground, a third of a car
+		// body's collision time. The box only lets SAT skip axes, so a smaller one never changes
+		// the result.
+		if (m_radius == btScalar(0))
+		{
+			m_extents[0] = m_extents[1] = m_extents[2] = btScalar(0);
+			return;
+		}
 		for (int j = 0; j < 1024; j++)
 		{
 			if (testContainment())
