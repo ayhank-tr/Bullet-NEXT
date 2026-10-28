@@ -22,3 +22,15 @@ Blender-specific changes (inertia, AABB margins, linked bodies) are not part of 
 Chrono's collision and contact unit tests stock, patched, and patched with the features on, runs
 `bn_mesh_slide.cpp` (ghost bumps on a flat mesh) with the features off and on, and writes the
 results the F1 gate reads.
+
+**Stage 1.** The patch also carries Stage 1's collision fixes: the points of a mesh contact in an
+order of their own (not the triangles'), no edge-edge axis from nearly parallel edges, no point
+from edge lines that meet far outside their edges, a flat polyhedron's internal box set to a
+point at once, and an in-plane SAT axis against a triangle sent to the GJK path. T1.7 was re-run
+with it: the same test results as before.
+
+`bn_vehicle_rigs.cpp` (Stage 1, C1S.6) is not part of the patch: it runs Chrono::Vehicle's own
+tyre force code (TMeasy with the BMW E90 front tyre's numbers, Pacejka 2002 with the sedan tyre
+file) at set loads and slips, and a 4WD driveline built from Chrono's shaft elements with Rally
+FX's locking settings on split grip. `tools/run_chrono_rigs.sh` builds it from ten Chrono::Vehicle
+files and runs it; the Stage 1 gate puts the results beside Rally FX's own figures.

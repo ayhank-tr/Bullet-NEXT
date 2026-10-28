@@ -24,6 +24,7 @@
 | nlohmann/json | 3.10.5 (`third_party/nlohmann`) | MIT | Lab scene files | Keep MIT notice |
 | musl float math | musl 1.2.4 as in Emscripten 3.1.47 (`third_party/musl_math`) | MIT | Bullet NEXT's portable sin, cos, atan2, exp, log, pow (`BN_PORTABLE_MATH`) | Keep `COPYRIGHT` |
 | Project Chrono (Lab engine) | main `da80252`, built out of tree (`lab/engines/bnl_chrono.cpp`) | BSD-3-Clause | Lab engine for recordings | Keep notices |
+| Project Chrono::Vehicle (Stage 1 rigs) | main `da80252`: ten tyre-related files compiled out of tree; the BMW E90 TMeasy tyre numbers copied into `integration/chrono/bn_vehicle_rigs.cpp`; the sedan Pacejka 2002 `.tir` file fetched at run time | BSD-3-Clause | Reference tyre and driveline curves for Rally FX's models | Keep notices (credited in the rig's header) |
 | Emscripten | 3.1.47, build tool | MIT / UIUC | Browser build | None for the output |
 | SDL2 (browser build) | 2.24.2 (Emscripten port) | zlib | Window and input in the browser page | Keep notice |
 
