@@ -4,7 +4,7 @@ The physics library of BGE NEXT: a frozen copy of the Bullet that Blender 2.79b 
 
 - Plan: "Bullet NEXT — Master Plan" (Claude doc).
 - Pinned sources: `MANIFEST.md`.
-- F0 results: `docs/F0_GATE_REPORT.md`; F1 results: `docs/F1_GATE_REPORT.md`; FL (the Lab) results: `docs/FL_GATE_REPORT.md`; F3c (Soft Step) results: `docs/F3C_GATE_REPORT.md`; Stage 0 (Ready for Rally FX) results: `docs/S0_GATE_REPORT.md`.
+- F0 results: `docs/F0_GATE_REPORT.md`; F1 results: `docs/F1_GATE_REPORT.md`; FL (the Lab) results: `docs/FL_GATE_REPORT.md`; F3c (Soft Step) results: `docs/F3C_GATE_REPORT.md`; Stage 0 (Ready for Rally FX) results: `docs/S0_GATE_REPORT.md`; Stage 1 (what Rally FX needs) results: `docs/S1_GATE_REPORT.md`.
 - Game engine wiring (2.79b): `integration/bge279/`. Chrono's Bullet copy: `integration/chrono/`. HARFANG 3D: `integration/harfang/`.
 
 ## The Lab (`lab/`)
@@ -32,6 +32,7 @@ python3 tools/run_f0_gate.py build gate_f0
 python3 tools/run_f1_gate.py build gate_f1 gate_f1/chrono_results.json
 python3 tools/run_f3c_gate.py --build build --out gate_f3c
 python3 tools/run_s0_gate.py --build build --out gate_s0 --f1 gate_f1 --f3c gate_f3c
+python3 tools/run_s1_gate.py --build build --out gate_s1 --f1 gate_f1 --f3c gate_f3c --s0 gate_s0
 ```
 
 `BN_THREADS=<n>` runs the harness on the threaded world (as BGE NEXT does); `BN_FEATURES=<mask>`
@@ -40,7 +41,11 @@ keeps only some F1 features (benchmark B1.2). A scene file's `"solver": "soft_st
 the Soft Step solver. A `"heightfield"` shape takes `samples`, `spacing` and either `heights` or a
 `terrain` generator (`plane` or `rolling`, the same heights everywhere); the action
 `"shift_origin"` moves the whole world once (`btNextShiftWorld`). The rally scenes come from
-`lab/tools/make_s0_scenes.py`. Inside another CMake project (the game engine)
+`lab/tools/make_s0_scenes.py`; the Stage 1 scenes (tilted plane, car body, 3 km field, crashes) from
+`lab/tools/make_s1_scenes.py`. A scene setting `"report_impulses": true` makes the Bullet NEXT
+engines add up every contact and continuous-collision impulse per body (`bnl_run --metrics` then
+checks them against each body's change of momentum). `bnl_edgecheck` compares a heightfield's
+worked-out edge data with Bullet's bake. Inside another CMake project (the game engine)
 only the two backends are built.
 
 C++14, strict floating point; Bullet NEXT's float math comes from its own copy of musl

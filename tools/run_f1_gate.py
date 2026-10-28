@@ -21,7 +21,11 @@ import bnr  # noqa: E402
 F0_COMMIT = "3bedd98"           # F0 as pushed; the legacy backend must not change after it
 THREADS = (1, 2, 4, 8)
 VARIANTS = range(5)             # gravity + 0.0005*k: the chaos band of each scene
-NOT_QUALITY = {"tunnel_100", "projectile"}  # legacy passes through the walls there; see T1.4
+NOT_QUALITY = {"tunnel_100", "projectile",  # legacy passes through the walls there; see T1.4
+               # Stage 1: legacy's hulls rest on their 4 cm collision margin (no overlap at rest) and
+               # are thrown by the terrain's edges; Bullet NEXT's hull clipping touches the real hull
+               # surface (about 1 mm at rest). No baseline to compare overlaps with (S1 report).
+               "rally_body"}
 
 
 def driven(name):
@@ -212,6 +216,9 @@ def main():
                    f"{avg(L, 'drift') * 1000:.1f} / {avg(N, 'drift') * 1000:.1f} | "
                    f"{avg(L, 'gain'):.2f} / {avg(N, 'gain'):.2f} | {'pass' if a and b and c else 'FAIL'} |")
     rep += ["", "Energy is not checked where vehicle engines do work: " + ", ".join(n for n, *_ in q if driven(n)) + "."]
+    rep += ["", "Not compared (no baseline): tunnel_100 and projectile (legacy passes through the walls, T1.4); "
+            "rally_body (legacy's hulls rest on their 4 cm collision margin, after being thrown by the terrain's edges; "
+            "see docs/S1_GATE_REPORT.md)."]
 
     if t17:
         rep += ["", "### T1.7 Chrono collision tests", "", f"Chrono commit {t17['chrono_commit']}.", "",

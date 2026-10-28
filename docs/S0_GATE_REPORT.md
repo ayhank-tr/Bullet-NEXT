@@ -102,6 +102,10 @@ stay unapplied until you give the go.
 
 ## Notes
 
+- Re-run on the Stage 1 build (28 Oct 2026): **PASSED**, TS.1 to TS.6. Stage 1's collision fixes
+  changed the slide scenes' paths with the collision features; the largest upward speed sliding at
+  30 and 50 m/s is now 0.000 m/s on both Bullet NEXT solvers (0.0001 before).
+
 - The F1 gate now runs on 30 scenes (the F3c and rally scenes joined the Lab). Its energy check
   skips scenes whose vehicle engines do work (vehicle, rally_stage).
 - The rally stage costs Bullet NEXT with its collision features about 0.04 ms a frame (150 ms

@@ -165,7 +165,7 @@ NEXT); applied when you give the go.
 The legacy backend (unchanged since F0, 16 of 16 recordings equal the F0 goldens), PGS and every
 other Lab engine (84 of 84 runs at their FL hashes). Soft Step is opt-in.
 
-## Stage 0 re-run (27 Oct 2026)
+## Re-runs: Stage 0 (27 Oct 2026) and Stage 1 (28 Oct 2026)
 
 Stage 0 changed two things this gate measures: PGS contacts with BGE's settings now use contact
 rule 4 (see docs/S0_GATE_REPORT.md), and Soft Step's joints are corrected at 200 Hz with angular
@@ -175,14 +175,17 @@ no longer met B3.1a; holding angular rows at Bullet's ERP brought Soft Step's an
 whole gate was re-run on the Stage 0 build: **PASSED.** Times under 10 ms move by up to 1.5x
 between runs on this machine.
 
+Stage 1 changed contacts between hulls and triangles and added scenes (34 now); the gate was run
+again on the Stage 1 build: **PASSED**. The tables below are from that run.
+
 | Test | Result | Measured |
 | --- | --- | --- |
-| T3.1 Legacy untouched | PASS | legacy/ unchanged since F0: True; legacy recordings = F0 goldens: 16/16; other engines = reference: 120/120 |
+| T3.1 Legacy untouched | PASS | legacy/ unchanged since F0: True; legacy recordings = F0 goldens: 16/16; other engines = reference: 136/136 |
 | T3.2 Stack stability | PASS | stack_20: 2.08 mm, 0.0053 m/s (PGS 204.27 mm, 24.3379 m/s, moved 43.445 m); pyramid_15: 0.18 mm, 0.0005 m/s (PGS 3.16 mm, 0.0235 m/s, moved 0.031 m) |
 | T3.3 Mass ratio | PASS | moved 0.0118 m, tilt 0.0167 rad, penetration 11.2 mm (PGS moved 2.397 m, tilt 1.679 rad) |
 | T3.4 Joint behaviour | PASS | joints_six: drift 16.322 mm (PGS 79.999), angle 0 rad (PGS 0.00104), energy gain -0.739% (PGS -0.458%); rb_constraints: drift 0.024 mm (PGS 0.09), angle 0.00049 rad (PGS 0.00049), energy gain 0.004% (PGS -0.006%); joint_grid: drift 76.3 mm (PGS 3770.64), angle 0 rad (PGS 0), energy gain -0.002% (PGS -0.016%); pendulum: drift 0.202 mm (PGS 1198.88), angle 0 rad (PGS 0), energy gain -0.004% (PGS -0.034%) |
 | T3.5 Restitution | PASS | e 0.0: measured 0.0 (PGS 0.0), rise 0.0 m vs 0.0 m; e 0.3: measured 0.3 (PGS 0.3), rise 0.1846 m vs 0.1837 m; e 0.6: measured 0.6 (PGS 0.6), rise 0.7423 m vs 0.7347 m; e 0.9: measured 0.9 (PGS 0.9), rise 1.6733 m vs 1.653 m |
-| T3.6 Determinism | PASS | 30/30 scenes give the same hash at 1, 2, 4 and 8 threads |
+| T3.6 Determinism | PASS | 34/34 scenes give the same hash at 1, 2, 4 and 8 threads |
 | B3.1 Equal-quality cost | PASS | joints: PASS, stacks: PASS, resting depth: PASS (tables below) |
 | B3.2 Substep sweep | record | table below |
 
@@ -190,36 +193,36 @@ between runs on this machine.
 
 | Scene | Substeps per second | Worst drift (mm), Soft Step / PGS | Time (ms), Soft Step / PGS | Time / PGS time |
 | --- | --- | --- | --- | --- |
-| joints_six | 60 | 76.659 / 79.999 | 5.9 / 6.2 | 0.962x |
-| rb_constraints | 60 | 0.104 / 0.09 | 67.0 / 86.4 | 0.775x |
-| joint_grid | 180 | 484.219 / 3770.64 | 571.9 / 403.6 | 1.417x |
-| pendulum | 60 | 11.519 / 1198.88 | 3.7 / 2.6 | 1.419x |
+| joints_six | 60 | 76.659 / 79.999 | 4.4 / 5.8 | 0.758x |
+| rb_constraints | 60 | 0.104 / 0.09 | 61.3 / 87.9 | 0.697x |
+| joint_grid | 180 | 484.219 / 3770.64 | 392.0 / 357.4 | 1.097x |
+| pendulum | 60 | 11.519 / 1198.88 | 2.2 / 2.4 | 0.901x |
 
 #### B3.1b Stacks: the cheapest setting of each solver that keeps the stack standing still (T3.2 / T3.3 limits)
 
 | Scene | Soft Step: substeps per second, time (ms) | PGS: iterations, time (ms) | Time / PGS time |
 | --- | --- | --- | --- |
-| stack_20 | 360, 62.5 | not reached at 160 (350.9 ms at 160) | below 0.178x |
-| mass_ratio | 240, 19.3 | not reached at 160 (133.2 ms at 160) | below 0.145x |
+| stack_20 | 360, 58.0 | not reached at 160 (325.6 ms at 160) | below 0.178x |
+| mass_ratio | 240, 16.1 | not reached at 160 (115.2 ms at 160) | below 0.14x |
 
 #### B3.1c Resting depth at the defaults (bound 2.5 mm), with PGS (10 iterations) beside it
 
 | Scene | Resting penetration (mm), Soft Step / PGS | PGS: how far a box moved (m) | Time (ms), Soft Step / PGS | Time / PGS time |
 | --- | --- | --- | --- | --- |
-| stack_10 | 0.99 / 2.44 | 0.057 | 9.0 / 4.3 | 2.089x |
-| pyramid_10 | 0.48 / 1.48 | 0.044 | 104.5 / 44.9 | 2.327x |
-| stack_20 | 2.08 / 204.27 | 43.445 | 90.2 / 36.0 | 2.505x |
-| rb_stack | 0.42 / 0.1 | 0.014 | 80.4 / 73.5 | 1.094x |
-| settings | 0.34 / 0.22 | 0.005 | 50.0 / 37.4 | 1.338x |
-| pyramid_15 | 0.18 / 3.16 | 0.031 | 42692.1 / 16813.2 | 2.539x |
+| stack_10 | 0.99 / 2.44 | 0.057 | 9.4 / 4.3 | 2.18x |
+| pyramid_10 | 0.48 / 1.48 | 0.044 | 88.1 / 40.9 | 2.154x |
+| stack_20 | 2.08 / 204.27 | 43.445 | 78.2 / 32.5 | 2.407x |
+| rb_stack | 0.42 / 0.1 | 0.014 | 60.3 / 58.2 | 1.035x |
+| settings | 0.34 / 0.22 | 0.005 | 46.8 / 36.7 | 1.276x |
+| pyramid_15 | 0.18 / 3.16 | 0.031 | 34913.6 / 14378.4 | 2.428x |
 
 #### B3.2 Substep sweep: Soft Step at a fixed number of substeps per 60 Hz step
 
 | Scene | 2 substeps: time, penetration, jitter, moved | 4 substeps: time, penetration, jitter, moved | 8 substeps: time, penetration, jitter, moved |
 | --- | --- | --- | --- |
-| bounce | 1.1 ms, 64.14 mm, 4.9998 m/s, 0.0 m | 1.3 ms, 17.62 mm, 5.0015 m/s, 0.0 m | 1.9 ms, 46.97 mm, 5.165 m/s, 0.0 m |
-| joint_grid | 500.6 ms, 68.99 mm, 29.238 m/s, 0.842 m | 569.1 ms, 104.9 mm, 12.8572 m/s, 3.28 m | 963.9 ms, 69.04 mm, 15.0205 m/s, 1.827 m |
-| joints_six | 6.8 ms, 0.5 mm, 2.2776 m/s, 0.76 m | 10.9 ms, 0.12 mm, 2.2917 m/s, 0.764 m | 19.1 ms, 0.03 mm, 2.2957 m/s, 0.765 m |
-| mass_ratio | 14.0 ms, 339.64 mm, 6.5239 m/s, 3.085 m | 18.7 ms, 58.65 mm, 0.0296 m/s, 0.017 m | 33.7 ms, 14.12 mm, 0.1075 m/s, 0.019 m |
-| pyramid_10 | 37.3 ms, 8.56 mm, 0.0039 m/s, 0.026 m | 53.6 ms, 1.96 mm, 0.0002 m/s, 0.02 m | 88.5 ms, 0.63 mm, 0.0011 m/s, 0.014 m |
-| stack_20 | 33.3 ms, 178.88 mm, 18.4053 m/s, 14.081 m | 46.5 ms, 13.51 mm, 0.4766 m/s, 0.796 m | 77.7 ms, 2.63 mm, 0.0015 m/s, 0.001 m |
+| bounce | 1.1 ms, 64.14 mm, 4.9998 m/s, 0.0 m | 1.2 ms, 17.62 mm, 5.0015 m/s, 0.0 m | 1.6 ms, 46.97 mm, 5.165 m/s, 0.0 m |
+| joint_grid | 438.8 ms, 68.99 mm, 29.238 m/s, 0.842 m | 557.6 ms, 104.9 mm, 12.8572 m/s, 3.28 m | 882.9 ms, 69.04 mm, 15.0205 m/s, 1.827 m |
+| joints_six | 6.2 ms, 0.5 mm, 2.2776 m/s, 0.76 m | 10.3 ms, 0.12 mm, 2.2917 m/s, 0.764 m | 18.1 ms, 0.03 mm, 2.2957 m/s, 0.765 m |
+| mass_ratio | 10.8 ms, 339.64 mm, 6.5239 m/s, 3.085 m | 21.8 ms, 58.65 mm, 0.0296 m/s, 0.017 m | 28.8 ms, 14.12 mm, 0.1075 m/s, 0.019 m |
+| pyramid_10 | 33.1 ms, 8.56 mm, 0.0039 m/s, 0.026 m | 49.1 ms, 1.96 mm, 0.0002 m/s, 0.02 m | 78.1 ms, 0.63 mm, 0.0011 m/s, 0.014 m |
+| stack_20 | 27.4 ms, 178.88 mm, 18.4053 m/s, 14.081 m | 57.4 ms, 13.51 mm, 0.4766 m/s, 0.796 m | 68.9 ms, 2.63 mm, 0.0015 m/s, 0.001 m |

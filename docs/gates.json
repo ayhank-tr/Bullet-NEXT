@@ -47,6 +47,18 @@
     "far_from_origin_m": 10000.0,
     "recentred_path_max_difference_m": 0.001
   },
+  "S1": {
+    "edge_angle_max_difference_rad": 1e-05,
+    "off_plane_max_mps": 0.05,
+    "identical_first_s": 0.5,
+    "identical_max_m": 1e-06,
+    "nudge_m": 1e-05,
+    "big_edges_max_s": 0.1,
+    "big_edges_max_mb": 1.0,
+    "impulse_max_error": 0.02,
+    "rigs_difference_to_explain": 0.2,
+    "t1s2_revision": "2026-10-28: heightfield against mesh after 10 s is held to the scene's own sensitivity (the same scenes nudged by 10 um), not to 5 cm: a tumbling car body is chaotic, and a 10 um nudge alone moved it 1-11 cm"
+  },
   "tolerance_mode_defaults": {
     "pos_m": 0.0001,
     "rot_rad": 0.001,
