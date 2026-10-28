@@ -1802,9 +1802,12 @@ void btSequentialImpulseConstraintSolver::writeBackContacts(int iBegin, int iEnd
 		//	printf("pt->m_appliedImpulseLateral1 = %f\n", f);
 		pt->m_appliedImpulseLateral1 = m_tmpSolverContactFrictionConstraintPool[solveManifold.m_frictionIndex].m_appliedImpulse;
 		//printf("pt->m_appliedImpulseLateral1 = %f\n", pt->m_appliedImpulseLateral1);
+		pt->m_bnStepImpulseLateral1 = pt->m_appliedImpulseLateral1;  // Bullet NEXT (Stage 1)
+		pt->m_bnStepImpulseLateral2 = 0;
 		if ((infoGlobal.m_solverMode & SOLVER_USE_2_FRICTION_DIRECTIONS))
 		{
 			pt->m_appliedImpulseLateral2 = m_tmpSolverContactFrictionConstraintPool[solveManifold.m_frictionIndex + 1].m_appliedImpulse;
+			pt->m_bnStepImpulseLateral2 = pt->m_appliedImpulseLateral2;
 		}
 		//do a callback here?
 	}

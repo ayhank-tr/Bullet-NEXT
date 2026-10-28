@@ -257,6 +257,7 @@ void btSoftStepConstraintSolver::preparePoints(btPersistentManifold** manifolds,
 			p.m_motion1 = p.m_motion2 = 0;
 			p.m_normalImpulse = p.m_tangentImpulse1 = p.m_tangentImpulse2 = 0;
 			p.m_totalNormalImpulse = p.m_maxNormalImpulse = 0;
+			p.m_totalTangentImpulse1 = p.m_totalTangentImpulse2 = 0;
 			p.m_separation = 0;
 			p.m_a = ia;
 			p.m_b = ib;
@@ -990,6 +991,8 @@ void btSoftStepConstraintSolver::storeResults(const btContactSolverInfo& info)
 		cp.m_prevRHS = p.m_normalImpulse * m_invH;
 		cp.m_appliedImpulseLateral1 = p.m_tangentImpulse1 * m_invH;
 		cp.m_appliedImpulseLateral2 = p.m_tangentImpulse2 * m_invH;
+		cp.m_bnStepImpulseLateral1 = p.m_totalTangentImpulse1;
+		cp.m_bnStepImpulseLateral2 = p.m_totalTangentImpulse2;
 	}
 	// joints: summed impulses, breaking, feedback
 	const btScalar invDt = btScalar(1) / info.m_timeStep;
@@ -1104,7 +1107,12 @@ btScalar btSoftStepConstraintSolver::solveGroup(btCollisionObject** bodies, int 
 				solveJoints(false);
 		}
 		for (int i = 0; i < m_points.size(); ++i)
-			m_points[i].m_totalNormalImpulse += m_points[i].m_normalImpulse;
+		{
+			Point& p = m_points[i];
+			p.m_totalNormalImpulse += p.m_normalImpulse;
+			p.m_totalTangentImpulse1 += p.m_tangentImpulse1;
+			p.m_totalTangentImpulse2 += p.m_tangentImpulse2;
+		}
 		for (int i = 0; i < m_joints.size(); ++i)
 		{
 			const Joint& j = m_joints[i];

@@ -325,6 +325,7 @@ struct BnUpdaterApply : public btIParallelForBody
 void btDiscreteDynamicsWorldMt::integrateTransforms(btScalar timeStep)
 {
 	BT_PROFILE("integrateTransforms");
+	m_bnCcdHits.resize(0);  // Stage 1: the crash report holds this step's hits
 	if (m_nonStaticRigidBodies.size() > 0 && getDispatchInfo().m_deterministicOverlappingPairs)
 	{
 		// Bullet NEXT (F1, C1.9): all sweeps first, then all moves.
@@ -341,6 +342,7 @@ void btDiscreteDynamicsWorldMt::integrateTransforms(btScalar timeStep)
 		apply.rigidBodies = &m_nonStaticRigidBodies[0];
 		apply.fractions = &m_bnHitFractions[0];
 		btParallelFor(0, m_nonStaticRigidBodies.size(), 50, apply);
+		bnCollectCcdHits(&m_nonStaticRigidBodies[0], m_nonStaticRigidBodies.size(), &m_bnHitFractions[0]);  // Stage 1
 		return;
 	}
 	if (m_nonStaticRigidBodies.size() > 0)

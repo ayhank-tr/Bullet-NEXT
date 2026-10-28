@@ -43,6 +43,7 @@ subject to the following restrictions:
 
 #include "LinearMath/btIDebugDraw.h"
 #include "BulletCollision/CollisionShapes/btSphereShape.h"
+#include "BulletCollision/CollisionShapes/btCompoundShape.h"
 
 #include "BulletDynamics/Dynamics/btActionInterface.h"
 #include "LinearMath/btQuickprof.h"
@@ -991,6 +992,49 @@ static void bnSweptAabb(const btRigidBody* body, const btTransform& from, const 
 	mx.setMax(b1);
 }
 
+// Bullet NEXT (Stage 1): continuous collision for compound bodies whose children are convex
+// (a car body made of hulls). Before, a compound was never swept, so a fast car body could sink
+// deep into a thin wall or trunk, and its crash was invisible to the CCD speed removal.
+bool btNextCcdCastable(const btCollisionShape* shape)
+{
+	if (shape->isConvex())
+		return true;
+	if (!shape->isCompound())
+		return false;
+	const btCompoundShape* c = static_cast<const btCompoundShape*>(shape);
+	if (c->getNumChildShapes() == 0)
+		return false;
+	for (int i = 0; i < c->getNumChildShapes(); ++i)
+		if (!c->getChildShape(i)->isConvex())
+			return false;
+	return true;
+}
+
+// One CCD sweep: the swept sphere, the body's convex shape, or each convex child of a compound
+// (all moved by the same translation, so the earliest hit of any child is the body's).
+static void bnCcdSweep(const btCollisionWorld* world, const btRigidBody* body, const btTransform& from, const btTransform& to,
+					   btCollisionWorld::ConvexResultCallback& results)
+{
+	const btCollisionShape* shape = body->getCollisionShape();
+	if (!body->getCcdShapeCast())
+	{
+		btSphereShape sphere(body->getCcdSweptSphereRadius());
+		world->convexSweepTest(&sphere, from, to, results);
+		return;
+	}
+	if (shape->isConvex())
+	{
+		world->convexSweepTest(static_cast<const btConvexShape*>(shape), from, to, results);
+		return;
+	}
+	const btCompoundShape* c = static_cast<const btCompoundShape*>(shape);
+	for (int i = 0; i < c->getNumChildShapes(); ++i)
+	{
+		const btTransform& ct = c->getChildTransform(i);
+		world->convexSweepTest(static_cast<const btConvexShape*>(c->getChildShape(i)), from * ct, to * ct, results);
+	}
+}
+
 ///internal debugging variable. this value shouldn't be too high
 int gNumClampedCcdMotions = 0;
 
@@ -1102,19 +1146,17 @@ void btDiscreteDynamicsWorld::bnSweepPredictive(btRigidBody** bodies, int numBod
 			continue;
 		body->predictIntegratedTransform(timeStep, predictedTrans);
 		btScalar squareMotion = (predictedTrans.getOrigin() - body->getWorldTransform().getOrigin()).length2();
-		if (!(getDispatchInfo().m_useContinuous && body->getCcdSquareMotionThreshold() && body->getCcdSquareMotionThreshold() < squareMotion && body->getCollisionShape()->isConvex()))
+		if (!(getDispatchInfo().m_useContinuous && body->getCcdSquareMotionThreshold() && body->getCcdSquareMotionThreshold() < squareMotion && btNextCcdCastable(body->getCollisionShape())))
 			continue;
 		btTransform modifiedPredictedTrans = predictedTrans;
 		modifiedPredictedTrans.setBasis(body->getWorldTransform().getBasis());
 		btVector3 sweptMin, sweptMax;
 		bnSweptAabb(body, body->getWorldTransform(), modifiedPredictedTrans, sweptMin, sweptMax);
 		BnCcdSweepCallback sweepResults(body, body->getWorldTransform().getOrigin(), predictedTrans.getOrigin(), getBroadphase()->getOverlappingPairCache(), getDispatcher(), sweptMin, sweptMax);
-		btSphereShape tmpSphere(body->getCcdSweptSphereRadius());
 		sweepResults.m_allowedPenetration = getDispatchInfo().m_allowedCcdPenetration;
 		sweepResults.m_collisionFilterGroup = body->getBroadphaseProxy()->m_collisionFilterGroup;
 		sweepResults.m_collisionFilterMask = body->getBroadphaseProxy()->m_collisionFilterMask;
-		const btConvexShape* castShape = body->getCcdShapeCast() ? static_cast<const btConvexShape*>(body->getCollisionShape()) : static_cast<const btConvexShape*>(&tmpSphere);
-		convexSweepTest(castShape, body->getWorldTransform(), modifiedPredictedTrans, sweepResults);
+		bnCcdSweep(this, body, body->getWorldTransform(), modifiedPredictedTrans, sweepResults);
 		if (sweepResults.hasHit() && (sweepResults.m_closestHitFraction < 1.f))
 		{
 			h.hitObject = sweepResults.m_hitCollisionObject;
@@ -1297,27 +1339,29 @@ void btDiscreteDynamicsWorld::bnSweepTransforms(btRigidBody** bodies, int numBod
 		BnCcdResult& r = results[i];
 		r.fraction = btScalar(-1);
 		r.deltaV.setZero();
+		r.hitObject = 0;
 		if (!(body->isActive() && (!body->isStaticOrKinematicObject())))
 			continue;
 		r.fraction = btScalar(1);
 		bnPredictTransform(body, timeStep, btScalar(1), predictedTrans);
 		btScalar squareMotion = (predictedTrans.getOrigin() - body->getWorldTransform().getOrigin()).length2();
-		if (getDispatchInfo().m_useContinuous && body->getCcdSquareMotionThreshold() && body->getCcdSquareMotionThreshold() < squareMotion && body->getCollisionShape()->isConvex())
+		if (getDispatchInfo().m_useContinuous && body->getCcdSquareMotionThreshold() && body->getCcdSquareMotionThreshold() < squareMotion && btNextCcdCastable(body->getCollisionShape()))
 		{
 			btTransform modifiedPredictedTrans = predictedTrans;
 			modifiedPredictedTrans.setBasis(body->getWorldTransform().getBasis());
 			btVector3 sweptMin, sweptMax;
 			bnSweptAabb(body, body->getWorldTransform(), modifiedPredictedTrans, sweptMin, sweptMax);
 			BnCcdSweepCallback sweepResults(body, body->getWorldTransform().getOrigin(), predictedTrans.getOrigin(), getBroadphase()->getOverlappingPairCache(), getDispatcher(), sweptMin, sweptMax);
-			btSphereShape tmpSphere(body->getCcdSweptSphereRadius());
 			sweepResults.m_allowedPenetration = getDispatchInfo().m_allowedCcdPenetration;
 			sweepResults.m_collisionFilterGroup = body->getBroadphaseProxy()->m_collisionFilterGroup;
 			sweepResults.m_collisionFilterMask = body->getBroadphaseProxy()->m_collisionFilterMask;
-			const btConvexShape* castShape = body->getCcdShapeCast() ? static_cast<const btConvexShape*>(body->getCollisionShape()) : static_cast<const btConvexShape*>(&tmpSphere);
-			convexSweepTest(castShape, body->getWorldTransform(), modifiedPredictedTrans, sweepResults);
+			bnCcdSweep(this, body, body->getWorldTransform(), modifiedPredictedTrans, sweepResults);
 			if (sweepResults.hasHit() && (sweepResults.m_closestHitFraction < 1.f))
 			{
 				r.fraction = sweepResults.m_closestHitFraction;
+				r.hitObject = sweepResults.m_hitCollisionObject;
+				r.hitPoint = sweepResults.m_hitPointWorld;
+				r.hitNormal = sweepResults.m_hitNormalWorld;
 				{
 					// Bullet NEXT (F1, C1.8), Jolt-style: a body stopped at the time of impact must also
 					// stop approaching, or it arrives next step with full speed and sinks in. The body's
@@ -1368,6 +1412,26 @@ void btDiscreteDynamicsWorld::bnApplyTransforms(btRigidBody** bodies, int numBod
 	}
 }
 
+// Stage 1, crash report: the step's hits in body order, on one thread after the moves (the apply
+// pass runs in parallel in the threaded world).
+void btDiscreteDynamicsWorld::bnCollectCcdHits(btRigidBody** bodies, int numBodies, const BnCcdResult* results)
+{
+	m_bnCcdHits.resize(0);
+	for (int i = 0; i < numBodies; i++)
+	{
+		const BnCcdResult& r = results[i];
+		if (r.fraction < btScalar(0) || r.fraction >= btScalar(1) || r.deltaV.isZero())
+			continue;
+		const btRigidBody* body = bodies[i];
+		BnCcdHit& hit = m_bnCcdHits.expandNonInitializing();
+		hit.body = body;
+		hit.other = r.hitObject;
+		hit.point = r.hitPoint;
+		hit.normal = r.hitNormal;
+		hit.impulse = r.deltaV * (body->getInvMass() > 0 ? btScalar(1) / body->getInvMass() : btScalar(0));
+	}
+}
+
 void btDiscreteDynamicsWorld::bnPredictTransform(btRigidBody* body, btScalar timeStep, btScalar fraction, btTransform& out) const
 {
 	if (m_constraintSolver && m_constraintSolver->getSolverType() == BT_SOFT_STEP_SOLVER)
@@ -1392,6 +1456,7 @@ void btDiscreteDynamicsWorld::bnPredictTransform(btRigidBody* body, btScalar tim
 void btDiscreteDynamicsWorld::integrateTransforms(btScalar timeStep)
 {
 	BT_PROFILE("integrateTransforms");
+	m_bnCcdHits.resize(0);  // Stage 1: the crash report holds this step's hits
 	if (m_nonStaticRigidBodies.size() > 0)
 	{
 		if (getDispatchInfo().m_deterministicOverlappingPairs)
@@ -1399,6 +1464,7 @@ void btDiscreteDynamicsWorld::integrateTransforms(btScalar timeStep)
 			m_bnHitFractions.resize(m_nonStaticRigidBodies.size());
 			bnSweepTransforms(&m_nonStaticRigidBodies[0], m_nonStaticRigidBodies.size(), timeStep, &m_bnHitFractions[0]);
 			bnApplyTransforms(&m_nonStaticRigidBodies[0], m_nonStaticRigidBodies.size(), timeStep, &m_bnHitFractions[0]);
+			bnCollectCcdHits(&m_nonStaticRigidBodies[0], m_nonStaticRigidBodies.size(), &m_bnHitFractions[0]);
 		}
 		else
 		{

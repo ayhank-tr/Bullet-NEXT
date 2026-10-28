@@ -7,6 +7,7 @@ Copyright (c) 2026 BGE NEXT contributors. Same zlib terms as Bullet.
 #include "BulletDynamics/Dynamics/btDiscreteDynamicsWorld.h"
 #include "BulletDynamics/Dynamics/btRigidBody.h"
 #include "LinearMath/btMotionState.h"
+#include "BulletCollision/NarrowPhaseCollision/btPersistentManifold.h"
 #include "BulletCollision/CollisionDispatch/btInternalEdgeUtility.h"
 #include "BulletCollision/CollisionDispatch/btCollisionObjectWrapper.h"
 #include "BulletCollision/CollisionDispatch/btManifoldResult.h"
@@ -241,7 +242,7 @@ void btNextConfigureCcd(btRigidBody* body, bool shapeCast)
 	// Sweep when a step moves the body more than half its thinnest extent.
 	body->setCcdMotionThreshold(minHalf * btScalar(0.5));
 	body->setCcdSweptSphereRadius(minHalf * btScalar(0.9));
-	body->setCcdShapeCast(shapeCast && body->getCollisionShape()->isConvex());
+	body->setCcdShapeCast(shapeCast && btNextCcdCastable(body->getCollisionShape()));  // Stage 1: compounds of hulls too
 }
 
 void btNextConfigureWorld(btDiscreteDynamicsWorld* world)
@@ -280,4 +281,18 @@ int btNextShiftWorld(btDiscreteDynamicsWorld* world, const btVector3& offset)
 		world->updateSingleAabb(o);
 	}
 	return softSkipped;
+}
+
+const btAlignedObjectArray<btDiscreteDynamicsWorld::BnCcdHit>& btNextCcdHits(const btDiscreteDynamicsWorld* world)
+{
+	return world->bnCcdHits();
+}
+
+btVector3 btNextContactImpulse(const btPersistentManifold* manifold, int point)
+{
+	const btManifoldPoint& cp = manifold->getContactPoint(point);
+	if (cp.getDistance() > manifold->getContactProcessingThreshold())
+		return btVector3(0, 0, 0);
+	return cp.m_normalWorldOnB * cp.m_appliedImpulse + cp.m_lateralFrictionDir1 * cp.m_bnStepImpulseLateral1 +
+		   cp.m_lateralFrictionDir2 * cp.m_bnStepImpulseLateral2;
 }

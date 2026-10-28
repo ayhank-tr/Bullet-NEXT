@@ -63,7 +63,9 @@ public:
 		  m_contactCFM(0.f),
 		  m_contactERP(0.f),
 		  m_frictionCFM(0.f),
-		  m_lifeTime(0)
+		  m_lifeTime(0),
+		  m_bnStepImpulseLateral1(0.f),
+		  m_bnStepImpulseLateral2(0.f)
 	{
 	}
 
@@ -96,7 +98,9 @@ public:
 										 m_frictionCFM(0.f),
 										 m_lifeTime(0),
 										 m_lateralFrictionDir1(0,0,0),
-										 m_lateralFrictionDir2(0,0,0)
+										 m_lateralFrictionDir2(0,0,0),
+										 m_bnStepImpulseLateral1(0.f),
+										 m_bnStepImpulseLateral2(0.f)
 	{
 	}
 
@@ -146,6 +150,13 @@ public:
 
 	btVector3 m_lateralFrictionDir1;
 	btVector3 m_lateralFrictionDir2;
+
+	/// Bullet NEXT (Stage 1, crash report): the last step's total friction impulses along
+	/// m_lateralFrictionDir1/2, written by every Bullet NEXT solver. (m_appliedImpulseLateral1/2
+	/// is the same with the sequential impulse solver; Soft Step keeps a warm-start force there.)
+	/// The impulse on body A is m_normalWorldOnB * m_appliedImpulse + these along their directions.
+	btScalar m_bnStepImpulseLateral1;
+	btScalar m_bnStepImpulseLateral2;
 
 	btScalar getDistance() const
 	{

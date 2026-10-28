@@ -159,6 +159,7 @@ private:
 		btScalar m_normalMass, m_tangentMass1, m_tangentMass2;
 		btScalar m_normalImpulse, m_tangentImpulse1, m_tangentImpulse2;
 		btScalar m_totalNormalImpulse;
+		btScalar m_totalTangentImpulse1, m_totalTangentImpulse2;  // Stage 1: the step's friction (crash report)
 		btScalar m_maxNormalImpulse;
 		btScalar m_relativeVelocity;        // normal velocity at the start of the step (negative: approaching)
 		btScalar m_friction, m_restitution;

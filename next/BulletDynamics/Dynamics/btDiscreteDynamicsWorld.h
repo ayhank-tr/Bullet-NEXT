@@ -96,7 +96,23 @@ public:
 	{
 		btVector3 deltaV;
 		btScalar fraction;
+		const btCollisionObject* hitObject;  // Stage 1: for the crash report
+		btVector3 hitPoint, hitNormal;
 	};
+	/// Bullet NEXT (Stage 1, crash report): one hit whose approach speed continuous collision
+	/// removed at the time of impact. impulse = the body's mass times its change of velocity, in
+	/// world space; the other object receives nothing from this step (it is static, kinematic, or
+	/// gets its share from the contact on the next step). Contact impulses are in the manifolds.
+	struct BnCcdHit
+	{
+		const btCollisionObject* body;
+		const btCollisionObject* other;
+		btVector3 point, normal, impulse;
+	};
+	void bnCollectCcdHits(btRigidBody** bodies, int numBodies, const BnCcdResult* results);
+	/// The hits of the last internal step (see btNextCcdHits).
+	const btAlignedObjectArray<BnCcdHit>& bnCcdHits() const { return m_bnCcdHits; }
+	btAlignedObjectArray<BnCcdHit> m_bnCcdHits;
 	void bnSweepTransforms(btRigidBody** bodies, int numBodies, btScalar timeStep, BnCcdResult* results);
 	void bnApplyTransforms(btRigidBody** bodies, int numBodies, btScalar timeStep, const BnCcdResult* results);
 	btAlignedObjectArray<BnCcdResult> m_bnHitFractions;
